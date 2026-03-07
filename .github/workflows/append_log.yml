@@ -1,0 +1,47 @@
+name: Append LeetCode Log Entry
+
+on:
+  repository_dispatch:
+    types: [append_log]
+
+permissions:
+  contents: write
+
+jobs:
+  append:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Append entry to log
+        env:
+          ENTRY: ${{ toJson(github.event.client_payload.entry) }}
+        run: |
+          # Decode the entry from the payload and append to log file
+          echo "$ENTRY" | python3 -c "
+          import sys, json, os
+
+          raw = sys.stdin.read().strip()
+          entry = json.loads(raw)
+
+          log_file = 'leetcode_log.md'
+
+          # Create file with header if it doesn't exist
+          if not os.path.exists(log_file):
+              with open(log_file, 'w') as f:
+                  f.write('# LeetCode Practice Log\n\n---\n')
+
+          with open(log_file, 'a') as f:
+              f.write('\n' + entry + '\n')
+
+          print('Entry appended successfully.')
+          "
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add leetcode_log.md
+          git commit -m "Log: append new LeetCode entry [skip ci]"
+          git push
