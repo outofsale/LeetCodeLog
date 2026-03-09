@@ -191,3 +191,5 @@ bool isValid(std::string_view s) {
 - **Destruction order fiasco:** statics destroyed in reverse init order — avoid non-trivial destructors on globals
 
 ---
+
+
