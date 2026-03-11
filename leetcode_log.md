@@ -329,3 +329,88 @@ int maxDepth(TreeNode* root) {
 - **⚠️ TODO — REVISIT:** DFS and BFS traversal orders (pre-order, in-order, post-order) iteratively and recursively — #94, #144, #145
 
 ---
+
+## 2026-03-09
+
+---
+
+### Problem #100 — Same Tree
+- **Difficulty:** Easy
+- **Topic:** Binary Tree, DFS, BFS
+
+#### Recursive Solution
+```cpp
+bool isSameTree(const TreeNode* p, const TreeNode* q) {
+    if (p == nullptr || q == nullptr) return p == q;
+    if (p->val != q->val) return false;
+    return isSameTree(p->left, q->left) && isSameTree(p->right, q->right);
+}
+```
+
+#### Iterative Solution
+```cpp
+bool isSameTree(TreeNode* p, TreeNode* q) {
+    if (p == nullptr || q == nullptr) return p == q;
+    std::stack<std::pair<TreeNode*, TreeNode*>> stk;
+    stk.push({p, q});
+    while (!stk.empty()) {
+        auto [l, r] = stk.top(); stk.pop();
+        if (l->val != r->val) return false;
+        if (l->right != nullptr && r->right != nullptr) stk.push({l->right, r->right});
+        else if (l->right != r->right) return false;
+        if (l->left != nullptr && r->left != nullptr)  stk.push({l->left, r->left});
+        else if (l->left != r->left)   return false;
+    }
+    return true;
+}
+```
+
+#### Complexity
+- **Time:** O(n) — **Space:** O(h)
+
+#### Concepts Discussed
+- **Collapsed null check:** `if (p == nullptr || q == nullptr) return p == q` handles both-null and one-null cases in one line — cleaner than two separate checks
+- **Stack invariant — only push non-null pairs:** avoids null dereference inside loop without extra null check per iteration. Cleaner than pushing null pairs and using continue
+- **Short-circuit &&:** right subtree only checked if left matches — correct instinct
+- **Lambda for repeated logic:** repeated null-check pattern can be extracted to a local lambda in production code to reduce duplication
+- **Top-level null guard is necessary:** even in iterative version — stack pushes {p,q} unconditionally, loop dereferences immediately. Guard cannot be removed
+- **Foundation problem:** #100 is a direct building block for #101 Symmetric Tree, #572 Subtree of Another Tree
+
+---
+
+### Problem #572 — Subtree of Another Tree
+- **Difficulty:** Easy
+- **Topic:** Binary Tree, DFS
+
+#### Solution
+```cpp
+bool isSubtree(const TreeNode* root, const TreeNode* subRoot) {
+    if (subRoot == nullptr) return true;
+    if (root == nullptr)    return false;
+    if (root->val == subRoot->val && isSameTree(root, subRoot)) return true;
+    return isSubtree(root->left, subRoot) || isSubtree(root->right, subRoot);
+}
+
+private:
+bool isSameTree(const TreeNode* p, const TreeNode* q) {
+    if (p == nullptr || q == nullptr) return p == q;
+    if (p->val != q->val) return false;
+    return isSameTree(p->left, q->left) && isSameTree(p->right, q->right);
+}
+```
+
+#### Complexity
+- **Time:** O(n × m) — isSameTree costs O(m) at each of n nodes in worst case
+- **Space:** O(h) — recursion depth bounded by height of root tree
+
+#### Concepts Discussed
+- **Null check order matters:** `subRoot == nullptr` must be checked before `root == nullptr` — empty tree is subtree of anything. Reversing order causes incorrect false return when subRoot is null
+- **Early val check before isSameTree:** `root->val == subRoot->val &&` short-circuits full comparison — avoids O(m) work unless root values match
+- **Private helper method:** `isSameTree` is implementation detail, not part of public interface — correct encapsulation
+- **Composing from previous solutions:** direct reuse of #100 — recognising and reusing structure is a strong interview signal
+- **Adversarial worst case:** `root = aaaaab`, `subRoot = aaab` — isSameTree runs nearly to completion at every node before failing → true O(n × m) behaviour
+- **Tree hashing optimisation:** serialise each subtree to a hash, store in unordered_set, check membership — reduces to O(n + m). Requires careful serialisation with null markers and delimiters to avoid false matches e.g. "1,2,#,#,3,#,#" not "123"
+- **KMP / suffix tree:** theoretically optimal O(n + m) — treat post-order serialisation as string matching problem. Academic but worth knowing exists
+- **⚠️ TODO — REVISIT:** DFS and BFS traversal orders (pre-order, in-order, post-order) iteratively and recursively — #94, #144, #145
+
+---
