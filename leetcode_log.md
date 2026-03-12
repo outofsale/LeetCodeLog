@@ -503,3 +503,117 @@ size_t hashNode(TreeNode* node,
 - **⚠️ TODO — REVISIT:** DFS and BFS traversal orders (pre-order, in-order, post-order) iteratively and recursively — #94, #144, #145
 
 ---
+
+## 2026-03-11
+
+---
+
+### Problem #509 — Fibonacci Number
+- **Difficulty:** Easy
+- **Topic:** Dynamic Programming, Math
+
+#### Solution
+```cpp
+int fib(int n) {
+    if (n <= 1) return n;
+    int first = 0, second = 1;
+    for (int i = 2; i <= n; ++i)
+        std::tie(first, second) = std::make_pair(second, first + second);
+    return second;
+}
+```
+
+#### Complexity
+- **Time:** O(n) — **Space:** O(1)
+
+#### Concepts Discussed
+- **`n <= 1` over `n == 0 || n == 1`:** cleaner, also handles negative input gracefully
+- **Eliminate temporary variable trick:** `second = first + second; first = second - first` — works because addition is reversible. Same principle as XOR swap. Clever but sacrifices readability — prefer `std::tie` or explicit temp in production
+- **`std::tie` + `std::make_pair`:** simultaneous assignment — both values evaluated before any assignment happens, no stale value risk. Zero overhead at -O2/-O3 due to inlining and copy elision
+- **Compiler optimisation flags:**
+  - `-O0` — no optimisation, default, easy to debug
+  - `-O1` — basic optimisations
+  - `-O2` — standard production choice: inlining, copy elision, loop optimisation
+  - `-O3` — aggressive: loop unrolling, auto-vectorisation (SIMD), can sometimes be slower due to instruction cache pressure
+  - `-Os` — optimise for binary size
+- **Copy elision / RVO:** at -O2, temporaries like `std::make_pair` are never materialised in memory — compiler emits identical assembly to hand-written temp variable version
+- **Godbolt (godbolt.org):** paste code, select compiler, add `-O2` flag — compare assembly of different implementations to verify identical output
+- **Naive recursive fib:** O(2^n) — catastrophic. Not tail recursive (two calls), overlapping subproblems recomputed repeatedly
+- **Memoised recursive fib:** O(n) time, O(n) space — correct but iterative is superior at O(1) space
+- **Matrix exponentiation:** raises 2×2 matrix to nth power via fast exponentiation — O(log n) time. Theoretically optimal, rarely asked
+- **First DP problem:** space optimisation of keeping only last two values instead of full array is the core DP space optimisation — appears in #70 Climbing Stairs, #198 House Robber
+
+---
+
+### Concepts Discussed — Tree Hashing and Merkle Trees
+*(Referenced from #572 discussion)*
+
+#### Tree Hashing For Subtree Matching
+- **Naive string serialisation cost:** string concatenation at each node costs O(subtree size) — total still O(n×m), not O(n+m)
+- **Correct serialisation format:** must include null markers and delimiters e.g. `"1,2,#,#,3,#,#"` not `"123"` — prevents false matches from different tree shapes with same values
+- **Post-order serialisation:** children serialised before parent — every substring uniquely identifies a subtree
+
+#### Merkle Tree — Incremental Hashing
+```cpp
+size_t hashNode(TreeNode* node,
+                std::unordered_map<TreeNode*, size_t>& cache) {
+    if (node == nullptr) return 0;
+    size_t leftHash  = hashNode(node->left,  cache);
+    size_t rightHash = hashNode(node->right, cache);
+    size_t h = leftHash  * 1000000007ULL
+             + rightHash * 998244353ULL
+             + std::hash<int>{}(node->val);
+    cache[node] = h;
+    return h;
+}
+```
+- **Core idea:** every node's hash derived from children's hashes — any change propagates to root. Root hash is fingerprint of entire tree
+- **O(1) per node:** children hashes already computed — true O(n+m) overall
+- **Large prime multipliers:** minimise collisions, ensure left/right child order matters — swapping children produces different hash
+- **Collision risk:** single 64-bit hash ~1/2^64 per comparison. Double hash ~1/2^128 for production. Cryptographic hash (SHA-256) for financial audit trails
+- **Merkle proof:** verify one element is in tree using only O(log n) hashes — path from element to root. Used in Bitcoin transaction verification
+
+#### Real World Applications
+- **Git:** every commit = hash(tree + parent + metadata). `git status` detects changes by comparing hashes — O(1) per file
+- **Blockchain:** transactions in Merkle tree — O(log n) proof of inclusion without downloading entire chain
+- **Distributed databases (Cassandra, DynamoDB):** detect out-of-sync data ranges during replication by bisecting Merkle tree — O(log n) messages instead of full data transfer
+- **HTTPS certificate transparency:** SSL certificates in Merkle tree — O(log n) membership proof
+
+#### Approach Comparison For #572
+| Approach | Time | Space | Use when |
+|---|---|---|---|
+| Naive recursive | O(n×m) | O(h) | Small n,m — LeetCode |
+| String hashing | O(n×m) string build | O(n×m) | Rarely better than naive |
+| Merkle incremental hash | O(n+m) | O(n) | Large trees, repeated queries |
+| KMP on serialisation | O(n+m) | O(n+m) | Theoretical optimum only |
+
+- **⚠️ TODO — REVISIT:** DFS and BFS traversal orders (pre-order, in-order, post-order) iteratively and recursively — #94, #144, #145
+
+---
+
+### Problem #70 — Climbing Stairs
+- **Difficulty:** Easy
+- **Topic:** Dynamic Programming, Math
+
+#### Solution
+```cpp
+int climbStairs(int n) {
+    if (n < 3) return n;
+    int first = 1, second = 2;
+    for (int i = 3; i <= n; ++i)
+        std::tie(first, second) = std::make_pair(second, first + second);
+    return second;
+}
+```
+
+#### Complexity
+- **Time:** O(n) — **Space:** O(1)
+
+#### Concepts Discussed
+- **Fibonacci in disguise:** `climbStairs(n) = climbStairs(n-1) + climbStairs(n-2)` — each step reachable from one or two steps below
+- **Base case differs from #509:** stair climbing starts `1, 2, 3, 5, 8...` not `0, 1, 1, 2...` — `first=1, second=2` captures this. `n < 3` returns `n` correctly by coincidence of problem values — be explicit about why in interviews
+- **DP table → space optimisation argument:** full O(n) DP is `dp[i] = dp[i-1] + dp[i-2]`. Since each value depends only on previous two, array collapses to two variables — always state this reasoning explicitly in interviews
+- **Generalisation to k steps:** `dp[i] = dp[i-1] + ... + dp[i-k]` — O(1) space no longer applies, needs sliding window of size k. Fibonacci shortcut disappears
+- **Pattern recognition:** directly reusing `std::tie` pattern from #509 — recognising DP recurrence structure across problems is key interview skill
+
+---
