@@ -617,3 +617,140 @@ int climbStairs(int n) {
 - **Pattern recognition:** directly reusing `std::tie` pattern from #509 — recognising DP recurrence structure across problems is key interview skill
 
 ---
+
+## 2026-03-13
+
+---
+
+### Problem #252 — Meeting Rooms
+- **Difficulty:** Easy
+- **Topic:** Sorting, Intervals
+
+#### Solution 1 — O(n²) const-compatible
+```cpp
+bool canAttendMeetings(const vector<vector<int>>& intervals) {
+    for (size_t i = 0; i < intervals.size(); ++i) {
+        for (size_t j = i + 1; j < intervals.size(); ++j) {
+            if (intervals[j][0] >= intervals[i][1] ||
+                intervals[j][1] <= intervals[i][0]) continue;
+            return false;
+        }
+    }
+    return true;
+}
+```
+
+#### Solution 2 — O(n log n) sort-based
+```cpp
+bool canAttendMeetings(vector<vector<int>>& intervals) {
+    std::sort(intervals.begin(), intervals.end());
+    for (size_t i = 1; i < intervals.size(); ++i) {
+        if (intervals[i-1][1] > intervals[i][0]) return false;
+    }
+    return true;
+}
+```
+
+#### Complexity
+- **Solution 1 — Time:** O(n²) — **Space:** O(1)
+- **Solution 2 — Time:** O(n log n) — **Space:** O(1)
+
+#### Concepts Discussed
+- **Tradeoff between solutions:** O(n²) preserves `const` correctness and avoids copying — O(n log n) requires either removing `const` or passing by value. State this tradeoff explicitly in interviews
+- **Default `std::sort` comparator:** uses `std::less<T>{}` which calls `operator<` on element type. For `std::vector`, `operator<` is lexicographic — compares element by element. `{1,2}` vs `{1,3}` → first elements equal → compare second → `{1,2}` comes first. Deterministic, not undefined
+- **Custom lambda comparator — empty capture `[]`:** lambda parameters are inner scope, same as function parameters — they are never captured. `[&]` when nothing from outer scope is used is misleading — signals hidden state that doesn't exist. Always use `[]` for self-contained comparators
+- **`[&]` capture generates member variable in functor:** compiler transforms lambda into a struct. Captured variables become member variables. Parameters are just function parameters — no capture needed
+- **Lambda cannot convert to raw function pointer when capturing:** raw function pointer is just a memory address — no storage for captured state. Captureless `[]` lambda can convert to function pointer. Capturing lambda cannot
+- **`std::function` as general solution:** wraps any callable including capturing lambdas via type erasure. Cost: heap allocation + virtual dispatch ~10-20ns per call. Avoid in hot paths — use template parameters instead
+- **Small Buffer Optimisation (SBO):** `std::function` avoids heap allocation if captured state fits in internal buffer (~16-32 bytes)
+- **Template parameter over `std::function` in HFT:** `template<typename Handler> void onData(Handler&& h)` — inlined by compiler, zero overhead vs `std::function` virtual dispatch
+- **`std::sort` default — `std::less<T>{}`:** calls `operator<`. Built-ins: natural ordering. `std::string`: lexicographic. `std::vector`: lexicographic. `std::pair`: by `.first` then `.second`
+- **Custom structs have no default `operator<`:** must define `operator<`, provide lambda comparator, or use C++20 spaceship `operator<=>` with `= default`
+- **C++20 spaceship operator `<=>`:** `auto operator<=>(const T&) const = default` generates all comparisons lexicographically across members in declaration order
+- **Descending sort:** `std::greater<T>{}`, reverse iterators `v.rbegin()/v.rend()`, or `>` in lambda
+- **`std::sort` vs `std::stable_sort`:**
+  - `std::sort`: introsort (quicksort + heapsort + insertion sort), O(n log n), O(log n) stack, unstable, ~2-3x faster
+  - `std::stable_sort`: merge sort, O(n log n) with O(n) heap allocation, O(n log² n) if allocation fails, stable
+  - Stability matters only when comparator treats elements as equal — equal elements may appear in any order after `std::sort`
+- **Multi-key sort pattern:** sort secondary key first, `std::stable_sort` by primary — OR use single comparator with explicit tiebreaker and `std::sort`. The latter is preferred: faster, explicit, not dependent on input order
+- **Strict weak ordering requirement:** comparator must satisfy irreflexivity, asymmetry, transitivity. Using `<=` instead of `<` violates irreflexivity — undefined behaviour, may crash or loop infinitely
+- **Buy-side preference:** `std::sort` with complete comparator including all tiebreaker fields (e.g. timestamp for time priority). `std::stable_sort` only when no tiebreaker field exists — rare in financial systems where every event is sequenced
+
+---
+
+### Problem #338 — Counting Bits
+- **Difficulty:** Easy
+- **Topic:** Dynamic Programming, Bit Manipulation
+
+#### Solution
+```cpp
+vector<int> countBits(int n) {
+    vector<int> counts(n + 1, 0);
+    for (int i = 1; i <= n; ++i)
+        counts[i] = counts[i >> 1] + (i & 1);
+    return counts;
+}
+```
+
+#### Alternative — Drop Lowest Set Bit
+```cpp
+vector<int> countBits(int n) {
+    vector<int> counts(n + 1, 0);
+    for (int i = 1; i <= n; ++i)
+        counts[i] = counts[i & (i - 1)] + 1;
+    return counts;
+}
+```
+
+#### Complexity
+- **Time:** O(n) — **Space:** O(n)
+
+#### Concepts Discussed
+- **`i >> 1` approach:** `counts[i] = counts[i/2] + (i is odd ? 1 : 0)`. Even numbers have same popcount as half (right shift removes trailing zero). Odd = previous even + 1
+- **`i & (i-1)` — clear lowest set bit:** subtracting 1 flips lowest set bit to 0 and all trailing zeros to 1. AND-ing keeps identical upper bits, zeros everything from lowest set bit down. Result: `i` with exactly one fewer bit
+- **Recurrence:** `popcount(i) = popcount(i & (i-1)) + 1` — always valid, no branching, works uniformly for odd and even
+- **Bit operations over arithmetic:** `i >> 1` faster than `i / 2`, `i & 1` faster than `i % 2` at O0. At O2 compiler handles it — but signals low-level fluency in interviews
+- **Redundant initialisation:** `counts[0] = 0` unnecessary — vector already initialised to 0 via constructor
+
+#### Bit Manipulation Toolkit
+| Expression | Effect | Common Use |
+|---|---|---|
+| `i & (i-1)` | Clear lowest set bit | Count bits, check power of 2 |
+| `i & (-i)` | Isolate lowest set bit | Fenwick tree, find lowest bit |
+| `i \| (i+1)` | Set lowest clear bit | Bit tricks |
+| `i & (i+1)` | Clear trailing ones | Bit tricks |
+| `n & (n-1) == 0` | Check power of 2 | Very common interview question |
+| `n ^ (n-1)` | Mask from lowest set bit downward | Bit tricks |
+| `a ^ b` | XOR — find differing bits | Find unique element, swap |
+| `~i & (i+1)` | Isolate lowest clear bit | Bit tricks |
+
+#### Key Bit Manipulation Patterns
+```cpp
+// Check power of 2
+bool isPowerOfTwo(int n) {
+    return n > 0 && (n & (n - 1)) == 0;
+}
+
+// Brian Kernighan — count set bits, O(number of set bits)
+int popcount(int n) {
+    int count = 0;
+    while (n) { n = n & (n - 1); ++count; }
+    return count;
+}
+
+// Check exactly one bit differs
+bool oneBitDifference(int a, int b) {
+    int diff = a ^ b;
+    return diff > 0 && (diff & (diff - 1)) == 0;
+}
+
+// Isolate lowest set bit
+int lowest = n & (-n);
+
+// Clear lowest set bit
+n = n & (n - 1);
+```
+
+- **⚠️ TODO — REVISIT:** DFS and BFS traversal orders (pre-order, in-order, post-order) iteratively and recursively — #94, #144, #145
+
+---
