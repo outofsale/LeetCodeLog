@@ -754,3 +754,245 @@ n = n & (n - 1);
 - **⚠️ TODO — REVISIT:** DFS and BFS traversal orders (pre-order, in-order, post-order) iteratively and recursively — #94, #144, #145
 
 ---
+
+## 2026-03-14
+
+---
+
+### Problem #268 — Missing Number
+- **Difficulty:** Easy
+- **Topic:** Math, Bit Manipulation
+
+#### Solution — Gauss Sum
+```cpp
+int missingNumber(vector<int>& nums) {
+    const int n = static_cast<int>(nums.size());
+    const int expected = n * (n + 1) / 2;
+    return expected - std::accumulate(nums.begin(), nums.end(), 0);
+}
+```
+
+#### Solution — XOR
+```cpp
+int missingNumber(vector<int>& nums) {
+    int result = static_cast<int>(nums.size());
+    for (int i = 0; i < static_cast<int>(nums.size()); ++i)
+        result ^= i ^ nums[i];
+    return result;
+}
+```
+
+#### Complexity
+- **Time:** O(n) — **Space:** O(1)
+
+#### Concepts Discussed
+- **Gauss sum:** expected = n*(n+1)/2 — missing = expected - actual sum
+- **Single pass trick:** seed `expected_total = size`, add i and nums[i] simultaneously — avoids separate loops
+- **`std::accumulate`:** idiomatic STL reduction — signals fluency, prefer over manual sum loop
+- **XOR approach:** `a ^ a = 0` — paired indices and values cancel, leaving only missing number. Zero overflow risk — advantage over sum when n is large
+- **Overflow risk in sum approach:** sum of 0..n overflows int when n > ~65,000. XOR has no overflow risk — always prefer for large n
+
+---
+
+### Problem #191 — Number of 1 Bits
+- **Difficulty:** Easy
+- **Topic:** Bit Manipulation
+
+#### Solution — Logical Right Shift
+```cpp
+int hammingWeight(uint32_t n) {
+    int count = 0;
+    while (n) {
+        count += n & 1;
+        n >>= 1;
+    }
+    return count;
+}
+```
+
+#### Solution — Brian Kernighan
+```cpp
+int hammingWeight(uint32_t n) {
+    int count = 0;
+    while (n) {
+        n = n & (n - 1);  // clear lowest set bit
+        ++count;
+    }
+    return count;
+}
+```
+
+#### Solution — C++20
+```cpp
+int hammingWeight(uint32_t n) {
+    return std::popcount(n);  // maps to POPCNT CPU instruction — single cycle
+}
+```
+
+#### Complexity
+- **Time:** O(log n) logical shift, O(popcount(n)) Brian Kernighan, O(1) std::popcount
+- **Space:** O(1)
+
+#### Concepts Discussed
+- **Must use `uint32_t` not `int`:** signed right shift is implementation-defined in C++17 (arithmetic shift fills with sign bit — infinite loop for negative n). Left shift into sign bit is UB. `uint32_t` guarantees logical shift
+- **C++20 signed right shift:** defined as arithmetic shift — still causes infinite loop for negative input. `uint32_t` is correct fix in any standard
+- **Logical shift iterations:** `floor(log2(n)) + 1` — terminates at highest set bit, not always 32
+- **Brian Kernighan iterations:** exactly `popcount(n)` — number of set bits
+- **Brian Kernighan is always equal or better:** `popcount(n) <= floor(log2(n)) + 1` always. Equal only when n = 2^k - 1 (all ones: 1,3,7,15...) — every bit up to highest is set. Strictly better for all other numbers
+- **`std::popcount` (C++20):** maps to x86 POPCNT instruction — single clock cycle regardless of input. Production answer for hot paths
+
+---
+
+### Problem #190 — Reverse Bits
+- **Difficulty:** Easy
+- **Topic:** Bit Manipulation
+
+#### Solution — Loop
+```cpp
+uint32_t reverseBits(uint32_t n) {
+    uint32_t result = 0;
+    for (int i = 0; i < 32; ++i) {
+        result <<= 1;
+        result |= (n & 1);
+        n >>= 1;
+    }
+    return result;
+}
+```
+
+#### Solution — Divide and Conquer O(1)
+```cpp
+uint32_t reverseBits(uint32_t n) {
+    n = (n >> 16) | (n << 16);
+    n = ((n >> 8)  & 0x00FF00FF) | ((n & 0x00FF00FF) << 8);
+    n = ((n >> 4)  & 0x0F0F0F0F) | ((n & 0x0F0F0F0F) << 4);
+    n = ((n >> 2)  & 0x33333333) | ((n & 0x33333333) << 2);
+    n = ((n >> 1)  & 0x55555555) | ((n & 0x55555555) << 1);
+    return n;
+}
+```
+
+#### Complexity
+- **Loop — Time:** O(32) = O(1) — **Space:** O(1)
+- **Divide and conquer — Time:** O(1), 5 operations — **Space:** O(1)
+
+#### Concepts Discussed
+- **`|=` over `^=`:** after `result <<= 1`, LSB is always 0 — XOR and OR behave identically. But `|=` expresses "set this bit", `^=` expresses "toggle" — `|=` is clearer
+- **32 iterations required:** unlike #191, bit reversal must process all 32 positions — leading zeros of n become trailing zeros of result. Early termination would lose this information
+- **Divide and conquer — swap increasingly smaller groups:** halves → bytes → nibbles → pairs → individual bits. 5 steps total
+- **Mask pattern:**
+  - `0x00FF00FF` = alternating bytes
+  - `0x0F0F0F0F` = alternating nibbles
+  - `0x33333333` = alternating pairs
+  - `0x55555555` = alternating individual bits
+  - Each mask selects lower half of each group at that level
+- **Why divide and conquer works here but not for strings:** bitmasks operate on ALL bits in parallel — O(1) per step. String characters are arbitrary — cannot use bitmasks, no parallel operation possible
+- **`std::byteswap` (C++23):** reverses bytes not bits — related but different. No standard bit-reversal function exists
+
+---
+
+### Concept — `i & (-i)` Isolate Lowest Set Bit
+
+#### Two's Complement
+```
+-i = ~i + 1  (flip all bits, add 1)
+i  =  0000 1100
+-i =  1111 0100
+i & -i = 0000 0100  — only lowest set bit survives
+```
+Adding 1 to `~i` carries through trailing ones — flipping them back to 0 and setting lowest set bit position to 1. Result: `i` and `-i` agree only at lowest set bit position.
+
+#### Contrast With `i & (i-1)`
+```
+i & (i-1)  → REMOVES  lowest set bit
+i & (-i)   → ISOLATES lowest set bit
+i == (i & (i-1)) + (i & (-i))  — always true
+```
+
+#### Uses
+```cpp
+// Isolate lowest set bit
+int lowest = n & (-n);
+
+// Check power of 2 (alternative)
+bool isPowerOfTwo(int n) { return n > 0 && (n & -n) == n; }
+
+// Fenwick Tree — jump to next responsible index
+void update(int i, int delta) {
+    for (; i <= n; i += i & (-i)) tree[i] += delta;
+}
+int query(int i) {
+    int sum = 0;
+    for (; i > 0; i -= i & (-i)) sum += tree[i];
+    return sum;
+}
+```
+- **Fenwick tree:** each index responsible for range of length equal to its lowest set bit. Built entirely around `i & (-i)` — appears in order book implementations for efficient prefix sum queries
+- **`__builtin_ctz(n)`:** count trailing zeros = position of lowest set bit (GCC/Clang)
+- **`std::countr_zero(n)` (C++20):** portable equivalent of `__builtin_ctz`
+
+#### C++20 `<bit>` Header — Full Toolkit
+```cpp
+std::countr_zero(n)    // position of lowest set bit
+std::countl_zero(n)    // count leading zeros
+std::popcount(n)       // count set bits
+std::has_single_bit(n) // check power of 2
+std::byteswap(n)       // reverse bytes (C++23)
+```
+
+---
+
+### Concept — Three-Reversal Trick For Substring Swap
+
+#### Swapping Two Adjacent Substrings In Place
+```
+s = [A][B]  →  [B][A]
+
+Step 1: reverse A  →  [A'][B]
+Step 2: reverse B  →  [A'][B']
+Step 3: reverse all → [B][A]  ✅
+```
+
+```cpp
+void reverseRange(std::string& s, int left, int right) {
+    while (left < right) std::swap(s[left++], s[right--]);
+}
+
+void swapSubstrings(std::string& s, int leftStart, int leftEnd,
+                                    int rightStart, int rightEnd) {
+    reverseRange(s, leftStart, leftEnd);
+    reverseRange(s, rightStart, rightEnd);
+    reverseRange(s, leftStart, rightEnd);
+}
+```
+
+#### Why It Works — Algebra
+```
+reverse(reverse(A) + reverse(B)) = B + A  ✅
+```
+reversal is its own inverse — `reverse(reverse(X)) = X`
+
+#### Non-Adjacent Substrings — `std::rotate`
+```cpp
+std::rotate(s.begin() + leftStart,
+            s.begin() + rightStart,
+            s.begin() + rightEnd + 1);
+```
+`std::rotate` uses three-reversal trick internally — O(n), in-place.
+
+#### Real World Uses
+- **Array left rotation by k:** reverse first k, reverse rest, reverse all
+- **Reverse words in sentence:** reverse each word, reverse whole string
+  ```
+  "hello world" → "olleh dlrow" → "world hello" ✅
+  ```
+- **`std::rotate` implementation**
+- **Divide and conquer string reversal:** structural analogy to bit reversal but O(n log n) due to rotate at each level — worse than two-pointer O(n). Analogy is structural only, performance benefit does not transfer
+
+#### Complexity
+- **Time:** O(n) — each character touched constant number of times
+- **Space:** O(1) — purely in-place
+
+- **⚠️ TODO — REVISIT:** DFS and BFS traversal orders (pre-order, in-order, post-order) iteratively and recursively — #94, #144, #145
+
+---
