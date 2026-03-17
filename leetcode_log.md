@@ -996,3 +996,176 @@ std::rotate(s.begin() + leftStart,
 - **⚠️ TODO — REVISIT:** DFS and BFS traversal orders (pre-order, in-order, post-order) iteratively and recursively — #94, #144, #145
 
 ---
+
+## 2026-03-16
+
+---
+
+### Problem #49 — Group Anagrams
+- **Difficulty:** Medium
+- **Topic:** Hash Map, String, Sorting
+
+#### Solution — Sort Key
+```cpp
+vector<vector<string>> groupAnagrams(const vector<string>& strs) {
+    unordered_map<string, vector<string>> groups;
+    for (const auto& s : strs) {
+        string key = s;
+        std::sort(key.begin(), key.end());
+        groups[key].push_back(s);
+    }
+    vector<vector<string>> result;
+    result.reserve(groups.size());
+    for (auto& [key, group] : groups)
+        result.push_back(std::move(group));
+    return result;
+}
+```
+
+#### Solution — Frequency Key O(N×M)
+```cpp
+vector<vector<string>> groupAnagrams(const vector<string>& strs) {
+    unordered_map<array<int,26>, vector<string>, ArrayHash> groups;
+    for (const auto& s : strs) {
+        array<int,26> freq{};
+        for (char c : s) ++freq[c - 'a'];
+        groups[freq].push_back(s);
+    }
+    vector<vector<string>> result;
+    for (auto& [key, group] : groups)
+        result.push_back(std::move(group));
+    return result;
+}
+```
+
+#### Complexity
+- **Sort key — Time:** O(N × M log M) — **Space:** O(N × M)
+- **Frequency key — Time:** O(N × M) — **Space:** O(N × M)
+
+#### Concepts Discussed
+- **`operator[]` default initialisation:** `++counts[nums[i]]` inserts 0 if key absent then increments — eliminates find/emplace branch. Standard idiom for frequency counting
+- **`emplace` over `insert`:** avoids unnecessary copies — consistent habit
+- **`find` then check iterator:** single lookup vs `count()` then `[]` which is two lookups
+- **`std::move(group)`:** moves vector out of map instead of copying — avoids O(N) copy per group
+- **`result.reserve(groups.size())`:** pre-allocates result vector — avoids reallocations
+- **Index-based approach:** store group index in separate map instead of group itself — avoids duplicate key storage. Valid optimisation but less readable than direct map to vector
+- **C++17 structured binding in range-for:** `for (auto& [key, group] : groups)` — clean, avoids `.first`/`.second`
+- **`array<int,26>` not hashable by default:** requires custom hasher — `std::hash` only specialised for primitives, string, string_view, pointers, and a few standard library types
+- **Not hashable by default:** `std::vector<T>`, `std::array<T,N>`, `std::pair`, `std::tuple`, custom structs
+
+#### boost::hash_combine
+```cpp
+seed ^= std::hash<T>{}(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+```
+- **Why not XOR alone:** XOR is commutative — `hash(A)^hash(B) == hash(B)^hash(A)`. Order lost — anagrams would collide
+- **`0x9e3779b9`:** golden ratio constant = `floor(2^32 / φ)`. Most "irrational" number — distributes bits uniformly across 32-bit space, breaks up clustering
+- **`(seed << 6) + (seed >> 2)`:** pseudo-rotation of seed — mixes current seed back into itself before combining. Ensures order sensitivity: `hash({1,2}) ≠ hash({2,1})`
+- **Universal composite key pattern:** use for `pair<int,int>`, `tuple`, `array`, custom structs
+- **C++26:** proposes standard hash for ranges and tuples — eliminates need for custom hashers
+
+#### if-with-initialiser (C++17) — Semicolon Not &&
+```cpp
+// CORRECT — semicolon separates init from condition
+if (auto it = map.find(key); it != map.end()) { }
+
+// WRONG — does not compile
+if (auto it = map.find(key) && it != map.end()) { }
+// parsed as: auto it = (map.find(key) && it != map.end())
+// it used before declared — compile error
+```
+- **Scoping benefit:** `it` confined to if/else block — cannot be accidentally used after
+
+---
+
+### Problem #347 — Top K Frequent Elements
+- **Difficulty:** Medium
+- **Topic:** Hash Map, Heap, Bucket Sort
+
+#### Solution — Min-Heap O(N + M log k)
+```cpp
+vector<int> topKFrequent(vector<int>& nums, int k) {
+    unordered_map<int,int> counts;
+    for (int n : nums) ++counts[n];
+    using P = pair<int,int>;
+    priority_queue<P, vector<P>, greater<P>> minHeap;
+    for (auto& [val, freq] : counts) {
+        minHeap.push({freq, val});
+        if (static_cast<int>(minHeap.size()) > k) minHeap.pop();
+    }
+    vector<int> result;
+    while (!minHeap.empty()) {
+        result.push_back(minHeap.top().second);
+        minHeap.pop();
+    }
+    return result;
+}
+```
+
+#### Solution — Bucket Sort O(N)
+```cpp
+vector<int> topKFrequent(vector<int>& nums, int k) {
+    unordered_map<int,int> counts;
+    for (int n : nums) ++counts[n];
+    vector<vector<int>> bucket(nums.size() + 1);
+    for (auto& [val, freq] : counts)
+        bucket[freq].push_back(val);
+    vector<int> result;
+    for (int i = static_cast<int>(bucket.size()) - 1;
+         i >= 0 && static_cast<int>(result.size()) < k; --i)
+        for (int val : bucket[i])
+            result.push_back(val);
+    return result;
+}
+```
+
+#### Complexity
+| | multimap | Min-heap | Bucket sort |
+|---|---|---|---|
+| Time | O(N + M log M) | O(N + M log k) | O(N) |
+| Space | O(N + M) | O(M + k) | O(N) |
+| When best | Simple | k << M | Always fastest |
+
+#### Concepts Discussed
+- **multimap vs priority_queue:** multimap sorts ALL M unique elements O(M log M) even though only k needed. Min-heap of size k evicts small elements immediately — O(M log k). Significant for k=1 on large M
+- **Bucket sort correctness:** index IS the frequency — exact mapping, not approximate. Valid because frequency is always a bounded non-negative integer in [1,n]. Not a general-purpose sort — only works when key is bounded non-negative integer
+- **O(N log N) comparison sort lower bound:** applies only to comparison-based sorting. Bucket/counting/radix sort bypass it by exploiting integer key structure
+- **Inner break unnecessary given LeetCode guarantee:** outer loop condition `result.size() < k` handles termination. Inner break only needed for general case where ties at boundary can overshoot k
+- **Range-based for preferred over index loop:** when index unused, `for (int n : nums)` is cleaner and less error-prone than `for (size_t i = 0; i < nums.size(); ++i)`
+
+---
+
+### Problem #167 — Two Sum II
+- **Difficulty:** Medium
+- **Topic:** Two Pointers, Binary Search
+
+#### Solution — Two Pointer O(N)
+```cpp
+vector<int> twoSum(const vector<int>& numbers, int target) {
+    int left = 0, right = static_cast<int>(numbers.size()) - 1;
+    while (left < right) {
+        const int sum = numbers[left] + numbers[right];
+        if (sum == target) return {left + 1, right + 1};
+        if (sum > target)  --right;
+        else               ++left;
+    }
+    return {};
+}
+```
+
+#### Complexity
+- **Time:** O(N) — **Space:** O(1)
+
+#### Concepts Discussed
+- **Why `--left` is never needed after `++left`:** we only do `++left` when `sum < target` — `numbers[left]` is too small for current `right`. Since `right` only decreases from here, `numbers[left]` is too small for ALL future right values too. Permanently ruled out
+- **Why `++right` is never needed after `--right`:** we only do `--right` when `sum > target` — `numbers[right]` is too large for current `left`. Since `left` only increases from here, `numbers[right]` is too large for ALL future left values too. Permanently ruled out
+- **Both pointers are one-way:** `left` is "increase sum" lever, `right` is "decrease sum" lever. Never need to pull either lever in reverse
+- **2D search space intuition:** all pairs form a grid. Two-pointer traces the staircase boundary — each `++left` eliminates an entire row, each `--right` eliminates an entire column. Going back revisits already-eliminated rows/columns — provably useless
+- **Uniqueness guarantee not needed for correctness:** sorted property alone guarantees each pointer move is correct. Uniqueness only guarantees answer is found before `left >= right`
+- **Binary search variant O(N log N):** lower_bound per left step — right shrinks correctly as left advances (complement decreases as left increases). Correct but O(N log N) vs O(N)
+- **Why binary search is not faster despite skipping right elements:** left still advances one by one — O(N) left steps × O(log N) per binary search = O(N log N). Two-pointer is O(N) because BOTH pointers move — total moves = N. Binary search only moves one pointer linearly while other does repeated O(log N) work
+- **When binary search wins in practice:** when answer found in very few left steps — early termination saves remaining N steps. But worst and average case favour two-pointer
+- **General principle:** when structural properties allow both boundaries to move simultaneously, prefer it over repeatedly searching within a shrinking range
+
+- **⚠️ TODO — REVISIT:** DFS and BFS traversal orders (pre-order, in-order, post-order) iteratively and recursively — #94, #144, #145
+
+---
