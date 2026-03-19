@@ -1169,3 +1169,116 @@ vector<int> twoSum(const vector<int>& numbers, int target) {
 - **⚠️ TODO — REVISIT:** DFS and BFS traversal orders (pre-order, in-order, post-order) iteratively and recursively — #94, #144, #145
 
 ---
+
+# C++ LeetCode Study Log
+**Wednesday, March 18, 2026**
+
+---
+
+## Problem Overview
+
+| Field | Detail |
+|---|---|
+| Problem | #424 – Longest Repeating Character Replacement |
+| Difficulty | Medium |
+| Topic Tags | Sliding Window, String, Hash Map |
+| Target Role | Buy-Side C++ Developer |
+| Status | Solved (multiple iterations) |
+
+---
+
+## Session Summary
+
+Started with an ad-hoc index-tracking solution and iteratively improved it toward the canonical O(n) sliding window approach through three distinct versions.
+
+---
+
+## Version 1 — Original Ad-Hoc Solution
+
+*Approach: Track occurrence indices per character in an `unordered_map`. For each new occurrence, scan backwards through stored indices to find the leftmost anchor where the remaining budget connects the window.*
+
+**Bugs identified:**
+- `longest` initialised to `k+1` without bounding by string size
+- Extension formula `i - v[j] + 1 + (k - fillings)` could exceed string length, inflating window size and causing a premature `break`
+- First-occurrence initialisation used magic number `k+1` without the same size guard
+
+**Complexity:** O(n²) time (inner loop scans all prior indices), O(n) space
+
+---
+
+## Version 2 — Patched Solution
+
+**Fixes applied:**
+- `min(k+1, size)` — init guard
+- `min(length, size)` — extension guard
+
+**Mathematical proof of correctness for the extension guard:**
+
+Given window `[v[j], i]` with remaining budget `b = k - fillings`:
+
+```
+actual_length = window + min(b, left_available + right_available)
+              = window + min(b, size - window)
+              = min(window + b, size)
+```
+
+This is exactly what `min(length, size)` computes — it is not merely a guard, it is mathematically exact. The extension budget can be split arbitrarily left or right; total achievable length is direction-independent.
+
+**Status:** Logically correct. O(n²) worst case persists (e.g. `k=0`, alternating chars — inner loop never breaks early).
+
+---
+
+## Version 3 — Binary Search Elimination of Inner Loop
+
+*Key insight: prove `fillings(j)` is monotonically non-increasing in `j`, enabling binary search for the leftmost valid anchor.*
+
+**Monotonicity proof:**
+```
+fillings(j)  = i - v[j] + j - v_size
+fillings(j+1) - fillings(j) = -(v[j+1] - v[j]) + 1 ≤ 0
+```
+Since `v` contains strictly increasing indices, `v[j+1] - v[j] ≥ 1`, so the difference is always `≤ 0`. Once the condition is satisfied, all subsequent `j` also satisfy it — classic `lower_bound` scenario.
+
+**Binary search target:**
+```
+fillings(j) ≤ k  ⟺  j - v[j] ≤ k - i + v_size
+```
+Search for leftmost `j` satisfying `j - v[j] ≤ rhs`, where `rhs` is constant per outer iteration.
+
+**Complexity:** O(n log n) time, O(n) space
+
+*Why O(n) is not reachable this way: storing all historical positions and paying O(log n) per element is a hard floor. To reach O(n), you must discard stale left positions as `i` advances — which is exactly the sliding window left pointer.*
+
+---
+
+## Complexity Comparison
+
+| Version | Time | Space | Correctness |
+|---|---|---|---|
+| v1 — original | O(n²) worst | O(n) | Buggy (init + extension) |
+| v2 — patched | O(n²) worst | O(n) | Correct |
+| v3 — binary search | O(n log n) | O(n) | Correct |
+| **Sliding Window** | **O(n)** | **O(1)** | **Correct** |
+
+---
+
+## Key Takeaways
+
+- The sliding window pattern relies on the observation that only `max_freq` within the current window matters — not which specific positions the target character occupies.
+- `maxFreq` intentionally never decreases in the canonical solution. A stale high value causes the window to slide without growing — never a false answer, never needs recomputation.
+- Monotonicity proofs are the bridge between brute-force inner loops and binary search. Always check if your scan variable is monotone before accepting O(n²).
+- `min(length, size)` in v2 is not a patch — it is the mathematically exact bound, proven by the budget-splitting argument.
+- Related problems to consolidate the sliding window pattern: #3, #76, #340, #992.
+
+---
+
+## C++ Notes
+
+- `if (auto it = map.find(key); it != map.end())` — C++17 init-statement in `if`, idiomatic for map lookup without double search.
+- `static_cast<int>(v.size())` — avoids signed/unsigned comparison warnings when indexing with `int` loop variables.
+- `std::array<int, 26> freq{}` — prefer over `unordered_map` for fixed alphabets; O(1) guaranteed, cache-friendly, zero-initialised by value-init.
+- `lo + (hi - lo) / 2` — canonical overflow-safe midpoint, mandatory in competitive and production code.
+
+---
+
+*Logged from Claude study session · March 18, 2026*
