@@ -1282,3 +1282,177 @@ Search for leftmost `j` satisfying `j - v[j] ≤ rhs`, where `rhs` is constant p
 ---
 
 *Logged from Claude study session · March 18, 2026*
+
+# C++ LeetCode Study Log
+**Thursday, March 19, 2026**
+
+---
+
+## Problem Overview
+
+| Field | Detail |
+|---|---|
+| Problem | #142 – Linked List Cycle II |
+| Difficulty | Medium |
+| Topic Tags | Linked List, Two Pointers, Hash Set |
+| Target Role | Buy-Side C++ Developer |
+| Status | Solved (two approaches) |
+
+---
+
+## Session Summary
+
+Solved with a hash set approach first, then analysed Floyd's cycle detection algorithm in depth — including exact step counts and space accounting, not just asymptotic bounds.
+
+---
+
+## Version 1 — Hash Set (Initial Attempt)
+
+```cpp
+class Solution {
+public:
+    ListNode* detectCycle(ListNode* head) {
+        unordered_set<ListNode*> visited;
+        while (head) {
+            auto [_, inserted] = visited.insert(head);
+            if (!inserted) break;
+            head = head->next;
+        }
+        return head;
+    }
+};
+```
+
+**Notes:**
+- Structured binding on `insert()` returns `pair<iterator, bool>` — only `inserted` is needed, discard the iterator with `_`
+- First version used `while(head = head->next)` — assignment in condition, draws `-Wparentheses` warnings; refactored to explicit `head = head->next` inside the loop body
+- No-cycle path returns `nullptr` implicitly when `head` exhausts the list — correct and now explicit
+
+**Complexity:** O(N) time, O(N) space (exact — see analysis below)
+
+---
+
+## Version 2 — Floyd's Cycle Detection (Canonical O(1) Space)
+
+```cpp
+class Solution {
+public:
+    ListNode* detectCycle(ListNode* head) {
+        ListNode* slow = head;
+        ListNode* fast = head;
+
+        // Phase 1: find meeting point inside cycle
+        while (fast != nullptr && fast->next != nullptr) {
+            slow = slow->next;
+            fast = fast->next->next;
+            if (slow == fast) {
+                // Phase 2: find cycle entry
+                ListNode* entry = head;
+                while (entry != fast) {
+                    entry = entry->next;
+                    fast  = fast->next;
+                }
+                return entry;
+            }
+        }
+        return nullptr;
+    }
+};
+```
+
+---
+
+## Mathematical Analysis
+
+Define:
+```
+F = nodes before cycle entry
+C = cycle length
+h = meeting point offset from cycle entry (Phase 1)
+N = F + C = total nodes
+```
+
+### Does slow always meet fast before completing a full cycle?
+
+When slow enters the cycle after F steps, fast has traveled 2F steps and is already `2F mod C` steps into the cycle. The gap fast must still close is:
+
+```
+gap = C - (2F mod C)   ← at most C-1
+```
+
+Fast gains exactly 1 step on slow per iteration, so they meet in exactly `gap` more iterations. Since `gap ≤ C-1`, slow travels at most **C-1 steps inside the cycle** before meeting — strictly less than one full loop.
+
+The gain of exactly 1 per iteration means fast can never skip over slow and miss it. It is a modular countdown that always hits zero.
+
+### Why does Phase 2 find the cycle entry?
+
+At the meeting point:
+```
+slow traveled:  F + h
+fast traveled:  F + h + n·C   (lapped slow n times)
+
+fast = 2·slow  →  n·C = F + h  →  F = n·C - h
+```
+
+From the meeting point, taking `F` more steps completes n full loops minus the head-start h, landing exactly at the cycle entry. A pointer reset to `head` walks F steps in sync — both arrive at the entry simultaneously.
+
+---
+
+## Exact Complexity Accounting
+
+### Hash Set — exact space
+
+| Case | Insertions |
+|---|---|
+| No cycle | N (all nodes until nullptr) |
+| Cycle exists | F + C = N (until first repeat) |
+
+O(N) space is tight in both cases — no slack hidden in the asymptotic notation.
+
+### Floyd's — exact step count
+
+**Phase 1:**
+```
+slow steps = F + gap = F + C - (2F mod C)
+           ≤ F + C = N
+           ≥ F + 1
+```
+
+**Phase 2:**
+```
+Both entry and fast walk exactly F more steps to meet at cycle entry.
+Total slow steps = (F + gap) + F ≤ 2N
+```
+
+**Space:** exactly 2 pointers regardless of input — true O(1) with no hidden growth.
+
+### Punchline
+
+```
+Hash set:  time = N,    space = N    (both tight)
+Floyd's:   time ≤ 2N,   space = 2    (time trades a constant factor for eliminating space entirely)
+```
+
+Floyd's does not improve the time constant — it potentially doubles the step count. The win is entirely in space. The tradeoff is worth articulating precisely in an interview.
+
+---
+
+## Key Takeaways
+
+- The structured binding discard idiom `auto [_, inserted] = ...` is idiomatic C++17 for single-field use of pair returns.
+- Assignment in condition (`while(head = head->next)`) is legal but always draws warnings — avoid in production code.
+- Floyd's correctness rests on two independent proofs: (1) slow can never complete a full cycle before meeting fast, and (2) the reset trick follows from `F = nC - h`. Be able to derive both from scratch.
+- Asymptotic notation hides meaningful constant factors. Floyd's is strictly worse on the time constant (2N vs N) — the tradeoff is purely about space.
+- Asking "does slow always meet fast before a full cycle?" and then proving it is the kind of first-principles thinking quant interviewers look for.
+
+---
+
+## C++ Notes
+
+- `unordered_set<T*>::insert()` returns `pair<iterator, bool>` — use structured bindings to extract cleanly without `.second`.
+- `auto [_, inserted] = set.insert(val)` — `_` as a discard name is idiomatic; preferred over `.second` for readability.
+- `while (fast != nullptr && fast->next != nullptr)` — always check both before dereferencing `fast->next->next`; order matters since `&&` short-circuits left to right.
+
+---
+
+*Logged from Claude study session · March 19, 2026*
