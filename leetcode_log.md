@@ -1456,3 +1456,204 @@ Floyd's does not improve the time constant — it potentially doubles the step c
 ---
 
 *Logged from Claude study session · March 19, 2026*
+
+# C++ LeetCode Study Log
+**Friday, March 20, 2026**
+
+---
+
+## Problem Overview
+
+| Field | Detail |
+|---|---|
+| Problem | #739 – Daily Temperatures |
+| Difficulty | Medium |
+| Topic Tags | Monotonic Stack, Array |
+| Target Role | Buy-Side C++ Developer |
+| Status | Solved |
+
+---
+
+## Session Summary
+
+Solved with a monotonic stack. Identified two code issues — a redundant early-exit guard caused by `do-while` structure, and a misleading complexity comment. Extended the session into a deep dive on amortized O(1) analysis.
+
+---
+
+## Solution
+
+```cpp
+class Solution {
+public:
+    vector<int> dailyTemperatures(const vector<int>& temperatures) {
+        int size = static_cast<int>(temperatures.size());
+        vector<int> results(size, 0);
+        stack<int> stk;
+
+        for (int i = 0; i < size; ++i) {
+            while (!stk.empty() && temperatures[i] > temperatures[stk.top()]) {
+                results[stk.top()] = i - stk.top();
+                stk.pop();
+            }
+            stk.push(i);
+        }
+        return results;
+    }
+};
+```
+
+---
+
+## Issues in Initial Version
+
+**1. Unnecessary early-exit + `do-while`**
+
+Initial version guarded with `if (stk.empty()) { stk.push(i); continue; }` before a `do-while` loop. The guard only existed because `do-while` unconditionally calls `stk.top()` before checking emptiness. Replacing with a `while` condition eliminates both the guard and the `continue`:
+
+```cpp
+// Before
+if (stk.empty()) { stk.push(i); continue; }
+do {
+    auto top = stk.top();
+    if (temperatures[i] > temperatures[top]) { stk.pop(); results[top] = i - top; }
+    else break;
+} while (!stk.empty());
+stk.push(i);
+
+// After
+while (!stk.empty() && temperatures[i] > temperatures[stk.top()]) {
+    results[stk.top()] = i - stk.top();
+    stk.pop();
+}
+stk.push(i);
+```
+
+**2. Misleading complexity comment**
+
+```cpp
+} while(!stk.empty());   // O(N)
+```
+
+Labelling the inner loop O(N) implies O(N²) overall. The correct framing is **amortized O(1)** per outer iteration — each index is pushed once and popped at most once across the entire run, so the inner loop contributes O(N) total work, not O(N) per call.
+
+---
+
+## Complexity
+
+| | Complexity | Reasoning |
+|---|---|---|
+| Time | O(N) | Each index pushed once, popped at most once |
+| Space | O(N) | Stack holds at most N indices |
+
+**Worst case for space:** a non-increasing sequence like `[100, 90, 80, ...]` — every index is pushed and never popped, so the stack grows to size N.
+
+**Stack invariant:** the stack always holds indices of a non-increasing temperature sequence. Maintaining this invariant is what makes the algorithm correct.
+
+---
+
+## Amortized O(1) — Deep Dive
+
+### Core Idea
+
+Regular O(1) means every individual operation is constant time. Amortized O(1) means the **average cost per operation over N operations** is constant — even if individual operations occasionally cost more. The cost is redistributed, not eliminated.
+
+### The Accounting Method
+
+Assign each element a token at creation. Tokens are spent when work is done.
+
+```
+push(i)  →  earns 1 token
+pop()    →  spends 1 token
+
+Each index pushed exactly once   →  N tokens created
+Each index popped at most once   →  at most N tokens spent
+Total inner loop work across entire run = O(N)
+Amortized cost per outer iteration = O(1)
+```
+
+A batch-pop of 1000 elements in one iteration looks expensive, but those 1000 pushes already paid for it.
+
+### The Potential Method (Rigorous)
+
+Define a potential function Φ measuring stored-up work (e.g. current stack size):
+
+```
+amortized_cost = actual_cost + ΔΦ
+```
+
+For the monotonic stack:
+- `push`: actual cost 1, Φ increases by 1 → amortized cost = 2 = O(1)
+- `pop k elements`: actual cost k, Φ decreases by k → amortized cost = 0, plus the final push = O(1)
+
+As long as Φ starts at 0 and never goes negative, the sum of amortized costs upper-bounds the total actual cost.
+
+### Common Occurrences
+
+**Monotonic stack / queue**
+Each element enters and exits exactly once. Any "next greater/smaller element" problem. Batch pops are covered by prior pushes.
+
+**`std::vector::push_back`**
+Doubling on resize copies all N elements — O(N) for that one call. But:
+```
+total copies to reach size N: 1 + 2 + 4 + ... + N/2 = N - 1
+```
+N insertions cause at most N-1 copies. Amortized O(1) per `push_back`. This is why `push_back` is amortized O(1) but `insert(begin())` is not.
+
+**`unordered_map` insert**
+Rehashing doubles the table and reinserts everything — same doubling argument as `std::vector`. Amortized O(1) per insert.
+
+**Union-Find with path compression**
+```cpp
+int find(int x) {
+    if (parent[x] != x)
+        parent[x] = find(parent[x]);  // flattens chain for future calls
+    return parent[x];
+}
+```
+One `find()` can traverse a long chain, but flattening makes subsequent calls O(1). Over M operations on N elements: amortized O(α(N)) per call — inverse Ackermann, effectively constant.
+
+**Splay trees**
+Each access rotates the node to root — expensive for deep nodes, but the rotation improves the structure for future accesses. Amortized O(log N) per operation even though individual ops can be O(N).
+
+### Summary Table
+
+| Structure / Operation | Worst Single Op | Amortized | Why |
+|---|---|---|---|
+| Monotonic stack pop | O(N) | O(1) | Each element popped at most once |
+| `vector::push_back` | O(N) | O(1) | Doubling amortises copy cost |
+| `unordered_map` insert | O(N) | O(1) | Rehash cost spread over insertions |
+| Union-Find `find` | O(N) | O(α(N)) ≈ O(1) | Path compression flattens future calls |
+| Splay tree access | O(N) | O(log N) | Rotation improves future structure |
+
+---
+
+## Key Takeaways
+
+- `while (!stk.empty() && condition)` is always cleaner than a `do-while` with a guarded `continue` — the guard is a symptom of the wrong loop construct.
+- Labelling an inner loop O(N) without the word "amortized" implies O(N²) total — be precise in comments and in interviews.
+- The stack invariant (non-increasing sequence) is the correctness argument; the token argument is the complexity argument. Know both separately.
+- Amortized O(1) is the right mental model for throughput-bound systems — HFT order books, ring buffers, memory pool allocators. Expensive slab allocations upfront, true O(1) individual allocations thereafter.
+- The potential method (amortized = actual + ΔΦ) is the rigorous framework expected in a quant interview when asked to prove amortized bounds formally.
+
+---
+
+## Related Problems
+
+| Problem | Pattern |
+|---|---|
+| #496 – Next Greater Element I | Monotonic stack, basic |
+| #503 – Next Greater Element II | Monotonic stack, circular array |
+| #84 – Largest Rectangle in Histogram | Monotonic stack, harder variant |
+| #239 – Sliding Window Maximum | Monotonic deque |
+
+---
+
+## C++ Notes
+
+- `stk.top()` followed by `stk.pop()` is the correct `std::stack` idiom — `top()` returns a reference, `pop()` discards; there is no combined `pop()` returning a value (intentional — exception safety).
+- `const vector<int>&` in the function signature is correct; the stack stores indices (`int`), not copied values.
+- `vector<int> results(size, 0)` — value-initialised to 0, which is the correct default (no warmer day found).
+
+---
+
+*Logged from Claude study session · March 20, 2026*
