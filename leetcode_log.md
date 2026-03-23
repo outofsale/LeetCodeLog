@@ -1657,3 +1657,249 @@ Each access rotates the node to root — expensive for deep nodes, but the rotat
 ---
 
 *Logged from Claude study session · March 20, 2026*
+
+# C++ LeetCode Study Log
+**Sunday, March 22, 2026**
+
+---
+
+## Problems Covered
+
+| # | Problem | Difficulty | Status |
+|---|---|---|---|
+| #77 | Combinations | Medium | Solved + optimised |
+| #1 | Two Sum | Easy | Solved in C++ and Python |
+
+---
+
+## #77 — Combinations
+
+### Solution with Pruning
+
+```cpp
+class Solution {
+public:
+    vector<vector<int>> combine(int n, int k) {
+        vector<vector<int>> results;
+        vector<int> comb;
+        backtrack(1, n, k, comb, results);
+        return results;
+    }
+
+private:
+    void backtrack(int start, int range, int count,
+                   vector<int>& comb, vector<vector<int>>& results) {
+        if (static_cast<int>(comb.size()) == count) {
+            results.push_back(comb);
+            return;
+        }
+        const int remaining = count - static_cast<int>(comb.size());
+        for (int i = start; i <= range - remaining + 1; ++i) {
+            comb.push_back(i);
+            backtrack(i + 1, range, count, comb, results);
+            comb.pop_back();
+        }
+    }
+};
+```
+
+### Pruning Derivation
+
+Without pruning, the loop runs to `range` even when there aren't enough elements left to complete the combination. The tighter bound comes from one constraint: the last element picked must not exceed `range`.
+
+If you start at `i` and still need `remaining` elements, you will pick `i, i+1, ..., i + remaining - 1`. The last element must be `<= range`:
+
+```
+i + remaining - 1 <= range
+i <= range - remaining + 1
+```
+
+`remaining = count - comb.size()` — the number of elements still needed at the current depth, which relaxes as the combination fills up:
+
+```
+At root:          comb=[], remaining=k   → upper = range - k + 1
+After one push:   comb=[1], remaining=k-1 → upper = range - k + 2
+After two pushes: comb=[1,2], remaining=k-2 → upper = range - k + 3
+```
+
+The bound relaxes at each depth because each element placed reduces how many more are needed.
+
+### Edge Cases
+
+```
+count == 1     →  upper = range, no pruning — every single element is valid
+count == range →  upper = 1 at root, maximum pruning — only one valid path
+count == 0     →  base case triggers immediately, returns {{}}
+```
+
+### Pruning for the 0-Indexed Array Version
+
+The same algebra with 0-indexed arrays:
+
+```
+i + remaining - 1 <= nums.size() - 1
+i <= nums.size() - remaining
+```
+
+```cpp
+// 1-indexed range (#77)
+for (int i = start; i <= range - remaining + 1; ++i)
+
+// 0-indexed array
+const int n = static_cast<int>(nums.size());
+for (int i = start; i <= n - remaining; ++i)
+```
+
+The `+1` difference is exactly the offset between 1-indexed and 0-indexed. Always hoist `nums.size()` cast outside the loop — not because the cast is expensive, but because it builds the correct habit for cases where the bound expression is genuinely costly.
+
+---
+
+## #1 — Two Sum
+
+### C++ Solution
+
+```cpp
+class Solution {
+public:
+    vector<int> twoSum(const vector<int>& nums, int target) {
+        unordered_map<int, int> m;
+        const int n = static_cast<int>(nums.size());
+        for (int i = 0; i < n; ++i) {
+            if (auto it = m.find(target - nums[i]); it != m.end())
+                return {it->second, i};
+            m[nums[i]] = i;
+        }
+        return {};  // guaranteed unreachable per problem constraints
+    }
+};
+```
+
+**Key points:**
+- Use `find` to avoid double lookup — `count` followed by `[]` hits the map twice for the same key
+- C++17 init-statement in `if` gives the iterator directly, no second lookup needed
+- `return {it->second, i}` — stored (smaller) index first, current (larger) index second
+- `return {}` at the end is unreachable by problem constraints but required for compilation
+
+### Python Solution
+
+```python
+class Solution:
+    def twoSum(self, nums: list[int], target: int) -> list[int]:
+        hashmap: dict[int, int] = {}
+        for i, value in enumerate(nums):
+            complement = target - value
+            if complement in hashmap:
+                return [hashmap[complement], i]
+            hashmap[value] = i
+        return []
+```
+
+### Complexity
+
+| | Complexity | Reasoning |
+|---|---|---|
+| Time | O(N) | Single pass, O(1) amortised per lookup |
+| Space | O(N) | Map holds at most N-1 entries before hit |
+
+---
+
+## Python Fundamentals
+
+### `enumerate` Instead of `range(len(...))`
+
+The most important habit shift coming from C++. Python iterates over values by default — indexing is the exception.
+
+```python
+# C++ habit — works but un-Pythonic
+for i in range(len(nums)):
+    value = nums[i]
+
+# Pythonic
+for i, value in enumerate(nums):
+    pass
+```
+
+`enumerate` unpacks into `(index, value)` pairs. Eliminates all `nums[i]` accesses in the loop body.
+
+### Type Hints
+
+```python
+# old style — requires: from typing import List
+def twoSum(self, nums: List[int], target: int) -> List[int]:
+
+# modern style (Python 3.9+) — no import needed
+def twoSum(self, nums: list[int], target: int) -> list[int]:
+
+# annotating a local variable
+hashmap: dict[int, int] = {}
+```
+
+Type hints are never enforced at runtime but aid readability and are checked by tools like `mypy`.
+
+### List Indexing — 0-Indexed, Same as C++
+
+```python
+nums = [10, 20, 30]
+nums[0]   # 10 — same as C++
+nums[-1]  # 30 — last element (no C++ equivalent natively)
+nums[-2]  # 20 — second to last
+```
+
+### Slicing — Half-Open Range, Same as C++ `[begin, end)`
+
+```python
+nums = [10, 20, 30, 40, 50]
+nums[1:4]   # [20, 30, 40] — indices 1,2,3 (4 excluded)
+nums[1:]    # [20, 30, 40, 50] — from index 1 to end
+nums[:3]    # [10, 20, 30] — from start to index 2
+nums[:]     # [10, 20, 30, 40, 50] — full copy
+```
+
+Identical convention to C++ half-open ranges `[start, end)`. Length-based slicing:
+
+```python
+nums[start : start + length]   # same arithmetic as C++ iterator arithmetic
+```
+
+**Important:** slicing creates a **copy** — O(N) time and space. Prefer passing indices for performance-sensitive code.
+
+### `set` vs `dict` — The Empty Case
+
+```python
+d = {"a": 1}   # dict
+d = {}          # empty dict
+
+s = {1, 2, 3}  # set
+s = set()       # empty set — {} would be an empty dict, NOT a set
+```
+
+Once there's at least one element the type is unambiguous — sets have no colons, dicts do. The empty case is the only trap.
+
+### C++ to Python Cheat Sheet
+
+| C++ | Python |
+|---|---|
+| `for (int i = 0; i < n; ++i)` | `for i, v in enumerate(collection)` |
+| `vector.push_back(x)` | `list.append(x)` |
+| `unordered_map<K,V>` | `dict` |
+| `unordered_set<T>` | `set` |
+| `s.count(x)` (set) | `x in s` |
+| `s.insert(x)` (set) | `s.add(x)` |
+| `s.erase(x)` | `s.discard(x)` (silent) / `s.remove(x)` (raises KeyError) |
+| `auto it = m.find(k)` | `if k in d` / `d.get(k)` |
+| `static_cast<int>(v.size())` | `len(v)` — always returns `int` |
+
+---
+
+## Key Takeaways
+
+- The pruning bound `range - remaining + 1` falls from one line of algebra (`i + remaining - 1 <= range`), not memorisation. Derive it on paper rather than pattern-matching the formula.
+- `remaining = count - comb.size()` is index-agnostic. `count - start` would only work if the range started at 0 — the 1-indexed offset breaks it.
+- Always hoist loop bounds out of the loop condition into a named `const` variable — cheap now, critical habit for when the expression is expensive.
+- In Python, reach for `enumerate` before `range(len(...))`. Indexing is the exception, not the rule.
+- Python's slice `[start:end]` and C++'s `[begin, end)` are the same half-open range convention — the mental model transfers directly.
+- Empty `set()` vs `{}` is one of the most common Python traps for C++ developers. `{}` is always a dict.
+
+---
+
+*Logged from Claude study session · March 22, 2026*
