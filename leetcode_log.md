@@ -1903,3 +1903,406 @@ Once there's at least one element the type is unambiguous — sets have no colon
 ---
 
 *Logged from Claude study session · March 22, 2026*
+
+# C++ LeetCode Study Log
+**Thursday, March 26, 2026**
+
+---
+
+## Problems Covered
+
+| # | Problem | Difficulty | Status |
+|---|---|---|---|
+| #200 | Number of Islands | Medium | In-place restoration strategies |
+| #3 | Longest Substring Without Repeating Characters | Medium | C++ array optimisation + Python |
+| #208 | Implement Trie | Medium | Solved + smart pointer deep dive |
+
+---
+
+## #200 — Number of Islands: Restoring In-Place Mutation
+
+Two strategies to restore `'1'` after using in-place `'0'` marking.
+
+### Approach 1: Collect Mutated Cells and Restore Per Island
+
+```cpp
+vector<pair<int,int>> mutated;
+grid[i][j] = '0';
+mutated.push_back({i, j});
+stk.push({i, j});
+
+while (!stk.empty()) {
+    auto [r, c] = stk.top(); stk.pop();
+    for (auto [dr, dc] : dirs) {
+        int nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && grid[nr][nc] == '1') {
+            grid[nr][nc] = '0';
+            mutated.push_back({nr, nc});
+            stk.push({nr, nc});
+        }
+    }
+}
+for (auto [r, c] : mutated) grid[r][c] = '1';
+```
+
+Defeats the purpose — still O(M·N) storage for `mutated`, same as the visited set.
+
+### Approach 2: Temp Marker `'2'` with Single Final Pass (Best)
+
+```cpp
+class Solution {
+public:
+    int numIslands(vector<vector<char>>& grid) {
+        const int rows = static_cast<int>(grid.size());
+        const int cols = static_cast<int>(grid[0].size());
+        int num = 0;
+
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < cols; ++j) {
+                if (grid[i][j] != '1') continue;
+                ++num;
+                stack<pair<int,int>> stk;
+                stk.push({i, j});
+                grid[i][j] = '2';
+                while (!stk.empty()) {
+                    auto [r, c] = stk.top(); stk.pop();
+                    for (auto [dr, dc] : dirs) {
+                        int nr = r + dr, nc = c + dc;
+                        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols
+                            && grid[nr][nc] == '1') {
+                            grid[nr][nc] = '2';
+                            stk.push({nr, nc});
+                        }
+                    }
+                }
+            }
+        }
+        for (int i = 0; i < rows; ++i)
+            for (int j = 0; j < cols; ++j)
+                if (grid[i][j] == '2') grid[i][j] = '1';
+        return num;
+    }
+private:
+    const vector<pair<int,int>> dirs = {{1,0},{-1,0},{0,1},{0,-1}};
+};
+```
+
+Three distinct states: `'0'` water, `'1'` unvisited land, `'2'` visited land. Single O(M·N) restoration pass at the end adds no asymptotic cost.
+
+### Restoration Strategy Comparison
+
+| Approach | Extra Space | Mutates Input | Restoration |
+|---|---|---|---|
+| In-place `'0'` (no restore) | O(1) | Yes — permanent | None |
+| Collect mutated cells | O(M·N) | Restored per island | Per island |
+| Temp marker `'2'` | O(1) | Restored at end | One final pass |
+| Original visited set | O(M·N) | No | None |
+
+---
+
+## #3 — Longest Substring: `array<int, 128>` Optimisation
+
+### Motivation
+
+`unordered_map<char, int>` is O(1) amortised but carries hash overhead and heap allocation. Since the alphabet is fixed at 128 ASCII characters, a stack-allocated array gives true O(1) with no hashing:
+
+```cpp
+class Solution {
+public:
+    int lengthOfLongestSubstring(string s) {
+        array<int, 128> visited;
+        visited.fill(-1);
+        const int size = static_cast<int>(s.size());
+        int start = 0, longest = 0;
+
+        for (int i = 0; i < size; ++i) {
+            const int idx = s[i];          // char implicitly converts to ASCII index
+            if (visited[idx] >= start)
+                start = visited[idx] + 1;
+            longest = max(longest, i - start + 1);
+            visited[idx] = i;
+        }
+        return longest;
+    }
+};
+```
+
+`-1` as sentinel: `-1 >= start` is always false since `start >= 0` — uninitialised entries naturally behave as "not visited", eliminating a separate existence check.
+
+### Why Not `array<char, 128>`?
+
+`char` stores characters (max value 127), not positions. Any string longer than 127 characters would overflow:
+
+```
+visited['a'] = 200   // doesn't fit in char — overflow
+```
+
+The array values represent last-seen positions (integers), not characters. Use `int`.
+
+### Performance Comparison
+
+| | `unordered_map` | `array<int, 128>` |
+|---|---|---|
+| Lookup | O(1) amortised + hash | O(1) exact, one instruction |
+| Memory | Heap allocated | 512 bytes on stack |
+| Cache | Pointer chasing | Sequential, cache-friendly |
+
+### `map<char, int>` Is Also O(1) for This Problem
+
+`map` lookup is O(log N) where N is map size. Since size is bounded by 128: `log(128) = 7` — a fixed constant regardless of input string length. All three structures are O(1) with respect to input size, just different constant factors:
+
+```
+map<char,int>        O(log 128) = 7 comparisons
+unordered_map        O(1) amortised + hash overhead
+array<int, 128>      O(1) exact — fastest
+```
+
+---
+
+## #3 — Python Solutions
+
+### Dict + `defaultdict` Version
+
+```python
+from collections import defaultdict
+
+class Solution:
+    def lengthOfLongestSubstring(self, s: str) -> int:
+        mapping = defaultdict(lambda: -1)
+        start = 0
+        longest = 0
+        for i, c in enumerate(s):
+            start = max(start, mapping[c] + 1)
+            longest = max(longest, i - start + 1)
+            mapping[c] = i
+        return longest
+```
+
+`defaultdict(lambda: -1)` returns `-1` for unseen characters — same sentinel trick as `array<int,128>`. `max(start, mapping[c] + 1)` replaces the explicit `if mapping[c] >= start` guard entirely — if stale, `max` keeps `start` unchanged.
+
+### Alternative: String-as-Window Approach
+
+```python
+class Solution:
+    def lengthOfLongestSubstring(self, s: str) -> int:
+        window = ""
+        longest = 0
+        for c in s:
+            idx = window.find(c)
+            if idx != -1:
+                window = window[idx+1:]
+            window += c
+            longest = max(longest, len(window))
+        return longest
+```
+
+Intuitive — `window` literally contains the current substring. But O(N²) due to:
+- `find` — O(N) linear scan
+- `window[idx+1:]` — O(N) slice creates new string
+- `window += c` — O(N) string concatenation (strings are immutable in Python)
+
+### Version Lineage — Who Loses the Last Window
+
+```
+Original Python (measures only on collision)  →  needs final max(longest, len(s)-start) patch
+String window (measures every iteration)      →  correct, but O(N²)
+defaultdict version (measures every iteration) →  correct and O(N)
+```
+
+---
+
+## #208 — Implement Trie
+
+### Bug: `return false` Inside Loop Body
+
+```cpp
+for (char c : word) {
+    if (auto it = children.find(c); it != children.end()) {
+        current = it->second;
+    }
+    return false;  // ← bare statement, always returns after first character
+}
+```
+
+Must be in the `else` branch:
+
+```cpp
+} else {
+    return false;
+}
+```
+
+### Canonical Solution
+
+```cpp
+class Trie {
+public:
+    Trie() : root(make_unique<Node>()) {}
+
+    void insert(const string& word) {
+        Node* current = root.get();
+        for (char c : word) {
+            int idx = c - 'a';
+            if (!current->children[idx])
+                current->children[idx] = make_unique<Node>();
+            current = current->children[idx].get();
+        }
+        current->is_word_end = true;
+    }
+
+    bool search(const string& word) {
+        const Node* current = traverse(word);
+        return current && current->is_word_end;
+    }
+
+    bool startsWith(const string& prefix) {
+        return traverse(prefix) != nullptr;
+    }
+
+private:
+    struct Node {
+        array<unique_ptr<Node>, 26> children;
+        bool is_word_end = false;
+    };
+
+    unique_ptr<Node> root;
+
+    const Node* traverse(const string& s) const {
+        const Node* current = root.get();
+        for (char c : s) {
+            int idx = c - 'a';
+            if (!current->children[idx]) return nullptr;
+            current = current->children[idx].get();
+        }
+        return current;
+    }
+};
+```
+
+### Design Improvements Over Initial Version
+
+**`unique_ptr` over `shared_ptr`**
+Each node has exactly one parent — no shared ownership exists. `shared_ptr` carries atomic reference counting overhead for no benefit. `unique_ptr` is zero-overhead.
+
+**`array<unique_ptr<Node>, 26>` over `map<char, shared_ptr<Node>>`**
+Fixed alphabet → fixed array. O(1) exact lookup vs O(log 26) tree traversal. Better cache locality.
+
+**`char c` removed from Node**
+The character is already the key in the parent's structure. Storing it in the node is redundant.
+
+**`traverse` helper eliminates duplicated logic**
+`search` and `startsWith` share identical traversal — extract into private `traverse` returning `nullptr` on miss. Both functions become one-liners.
+
+### Complexity
+
+| Operation | Time | Space |
+|---|---|---|
+| `insert` | O(L) | O(L) new nodes worst case |
+| `search` | O(L) | O(1) |
+| `startsWith` | O(L) | O(1) |
+| Total space | — | O(N·L·26) |
+
+---
+
+## Smart Pointer Deep Dive
+
+### `unique_ptr` + Raw Pointer Pattern
+
+Ownership and access are separate concerns:
+
+```
+unique_ptr  — owns, manages lifetime, cannot be copied
+raw pointer — non-owning handle, freely copyable, read OR write
+```
+
+Raw pointers obtained from `unique_ptr::get()` can freely modify the object — the only restriction is they cannot affect ownership:
+
+```cpp
+Node* current = root.get();
+current->is_word_end = true;                    // modify ✓
+current->children[idx] = make_unique<Node>();   // modify ✓
+delete current;                                 // NEVER — unique_ptr owns the memory ✗
+```
+
+### When `shared_ptr` Is Actually Needed
+
+`shared_ptr` is needed when **multiple owners exist** — the object must survive until the last owner releases it.
+
+**Graph with shared nodes (diamond pattern):**
+```cpp
+//     A
+//    / \
+//   B   C
+//    \ /
+//     D   ← owned by both B and C — unique_ptr impossible
+auto D = make_shared<GraphNode>(4);
+B->neighbours.push_back(D);   // ref count = 2
+C->neighbours.push_back(D);   // ref count = 2
+// D destroyed only when both B and C release it
+```
+
+**Shared cache entry:**
+```cpp
+shared_ptr<CacheEntry> get(const string& key) {
+    return store[key];  // caller and cache co-own the entry
+}
+// cache can evict — caller's copy keeps entry alive until done
+```
+
+### `weak_ptr` — Observe Without Extending Lifetime
+
+Solves circular reference problem. `shared_ptr` A → B and B → A creates a cycle — neither ever destroyed. Making one direction `weak_ptr` breaks the cycle:
+
+```cpp
+weak_ptr<MarketData> data;   // doesn't increment ref count
+
+if (auto d = data.lock()) {  // lock() returns shared_ptr if still alive
+    cout << d->price;
+} else {
+    cout << "data expired";  // original was destroyed
+}
+```
+
+### External Raw Pointer Access
+
+Raw pointers for external read/write access are fine when the **lifetime contract is clear**:
+
+```cpp
+// Safe — short-lived, used within known scope
+const Order* bid = book.getBestBid();
+if (bid && bid->price > threshold) execute();
+// bid goes out of scope here, never stored
+
+// Dangerous — stored raw pointer, lifetime unclear
+class Strategy {
+    const Order* cached_bid;   // who guarantees OrderBook lives?
+};
+```
+
+### Smart Pointer Decision Table
+
+| Situation | Use |
+|---|---|
+| Single clear owner | `unique_ptr` |
+| Multiple owners, last one cleans up | `shared_ptr` |
+| Observe without owning, detect destruction | `weak_ptr` |
+| Short-lived traversal or modification | raw pointer from `get()` |
+| Long-lived external storage | `weak_ptr` or `shared_ptr` |
+
+In hot-path trading code — market data feeds, order book snapshots — raw pointer access from `unique_ptr` is standard for performance. `shared_ptr` is used for longer-lived shared state like configuration or cached reference data. The discipline is enforcing the lifetime contract clearly.
+
+---
+
+## Key Takeaways
+
+- In-place grid mutation during BFS: always mark on **push**, not on pop — marking on pop allows the same cell to be pushed multiple times before processing.
+- The `array<int, 128>` optimisation for fixed-alphabet problems eliminates hash overhead entirely — 512 bytes on the stack vs heap-allocated map nodes.
+- `map<char,int>` is O(1) for this problem because its size is bounded by 128 — `log(128) = 7` is a constant. All three structures are O(1) w.r.t. input size, just different constant factors.
+- `unique_ptr` + raw pointer is the correct pattern for tree traversal and modification — `shared_ptr` solves shared ownership, not the need to copy a pointer.
+- Raw pointers from `unique_ptr` can freely read and write — the only restriction is they cannot `delete` or otherwise affect ownership.
+- `weak_ptr` is the correct tool for external long-lived observation — it detects destruction without preventing it, and breaks `shared_ptr` cycles.
+- `defaultdict(lambda: -1)` in Python mirrors the `array.fill(-1)` sentinel pattern in C++ — eliminates explicit existence checks with a guaranteed safe default.
+
+---
+
+*Logged from Claude study session · March 26, 2026*
