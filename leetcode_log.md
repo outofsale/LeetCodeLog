@@ -2306,3 +2306,5 @@ In hot-path trading code — market data feeds, order book snapshots — raw poi
 ---
 
 *Logged from Claude study session · March 26, 2026*
+
+
