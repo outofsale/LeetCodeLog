@@ -2308,3 +2308,408 @@ In hot-path trading code — market data feeds, order book snapshots — raw poi
 *Logged from Claude study session · March 26, 2026*
 
 
+
+# C++ LeetCode Study Log
+
+**Sunday, March 29, 2026**
+
+-----
+
+## Problems Covered
+
+|# |Problem |Difficulty|Status |
+|----|---------------------------|----------|---------------------------------------------------------|
+|#322|Coin Change |Medium |Solved — full evolution from backtracking to bottom-up DP|
+|#4 |Median of Two Sorted Arrays|Hard |Solved — canonical partition binary search |
+
+-----
+
+## #322 — Coin Change: Full Evolution
+
+### Stage 1 — Backtracking + Container (Wrong Algorithm)
+
+```cpp
+void recursive(const vector<int>& coins, size_t begin, int amount,
+int count, vector<int>& counts) {
+if (amount == 0) { counts.push_back(count); return; }
+if (begin == coins.size()) return;
+for (size_t i = begin; i < coins.size(); ++i) {
+if (amount < coins[i]) continue;
+amount -= coins[i]; // Bug: should be coins[i] not coins[begin]
+recursive(coins, i, amount, count + 1, counts);
+amount += coins[i];
+}
+}
+```
+
+**Bug:** `coins[begin]` used instead of `coins[i]` in original — always subtracts the wrong coin when `i != begin`.
+
+**Fundamental problem:** collecting all paths into a container then scanning for minimum is exponential. The container is a signal that the wrong algorithm is being used — coin change only needs a single integer answer.
+
+-----
+
+### Stage 2 — Backtracking, Value Return
+
+```cpp
+int recursive(const vector<int>& coins, int amount) {
+if (amount == 0) return 0;
+int count = -1;
+for (int coin : coins) {
+if (amount < coin) continue;
+int sub = recursive(coins, amount - coin);
+if (sub != -1) {
+int candidate = sub + 1;
+count = (count == -1) ? candidate : min(candidate, count);
+}
+}
+return count;
+}
+```
+
+**Improvements:**
+
+- Container eliminated — `-1` propagates as “impossible” sentinel
+- `begin` parameter removed — coin change has no ordering constraint, every coin is valid at every step
+- `amount - coin` passed directly — no mutate/restore needed since `amount` is a local value, not shared mutable state
+
+**Why mutate/restore is unnecessary here:**
+
+In backtracking, `amount` is shared across siblings — undo is essential. Here each call gets its own copy. After `amount += coin` restores the local value, the next iteration does `amount -= next_coin` fresh from the original anyway. Passing `amount - coin` directly makes the independence explicit.
+
+**Still exponential** — same subproblems recomputed many times.
+
+-----
+
+### Stage 3 — Top-Down DP (Memoization)
+
+```cpp
+class Solution {
+public:
+int coinChange(vector<int>& coins, int amount) {
+vector<int> memo(amount + 1, -2); // -2 = unvisited
+return recursive(coins, amount, memo);
+}
+private:
+int recursive(const vector<int>& coins, int amount, vector<int>& memo) {
+if (amount == 0) return 0;
+if (memo[amount] != -2) return memo[amount]; // reuse subproblem
+
+int count = -1;
+for (int coin : coins) {
+if (amount < coin) continue;
+int sub = recursive(coins, amount - coin, memo);
+if (sub != -1) {
+int candidate = sub + 1;
+count = (count == -1) ? candidate : min(candidate, count);
+}
+}
+return memo[amount] = count;
+}
+};
+```
+
+**Why `vector<int>` not `unordered_map`:**
+Keys are integers in `[0, amount]` — a perfect fit for a vector. Direct index lookup vs hash overhead. Same reason `array<int,128>` beats `unordered_map<char,int>` for fixed domains.
+
+**Sentinel values:**
+
+- `-2` = unvisited (not yet computed)
+- `-1` = impossible (no valid combination)
+- `≥ 0` = valid answer
+
+-----
+
+### Stage 4 — Bottom-Up DP (Iterative)
+
+```cpp
+class Solution {
+public:
+int coinChange(vector<int>& coins, int amount) {
+vector<int> dp(amount + 1, -1);
+dp[0] = 0;
+const int n = static_cast<int>(dp.size());
+
+for (int i = 1; i < n; ++i) {
+int count = -1;
+for (int coin : coins) {
+if (i - coin >= 0 && dp[i - coin] != -1) {
+int candidate = dp[i - coin] + 1;
+count = (count == -1) ? candidate : min(count, candidate);
+}
+}
+dp[i] = count;
+}
+return dp[amount];
+}
+};
+```
+
+**Direction:** starts at base case `dp[0] = 0` and builds upward to `dp[amount]` — opposite of top-down which starts at `amount` and recurses down to `0`.
+
+**Order guarantee:** when computing `dp[i]`, every `dp[i - coin]` is already computed since `i - coin < i` always.
+
+**`dp` naming:** conventional shorthand for “dynamic programming table” — same as how `i,j,k` are conventional loop variables. Signals to any reader that this array stores subproblem answers.
+
+-----
+
+### Complexity Progression
+
+|Stage |Time |Space |Correct|
+|--------------------------|-------------|----------------------|-------|
+|Backtracking + container |O(S^n) |O(n) stack + counts |Buggy |
+|Backtracking, value return|O(S^n) |O(n) stack |Correct|
+|Top-down DP |O(amount × n)|O(amount) memo + stack|Correct|
+|Bottom-up DP |O(amount × n)|O(amount) |Correct|
+
+-----
+
+### The Four-Stage Mental Model for DP Problems
+
+```
+1. Backtracking — recursion, no reuse → not DP
+2. Value-returning recursion — recursion, no reuse → not DP, cleaner
+3. Top-down DP — recursion + memo → DP
+4. Bottom-up DP — iteration + table → DP
+```
+
+Adding the memo table is what makes it DP — not the switch to iteration.
+
+-----
+
+## Greedy Algorithms
+
+### Core Idea
+
+At each step, make the **locally optimal choice** and never reconsider it. No backtracking, no exploring alternatives.
+
+```
+Greedy mantra: "Take the best option available right now and move on."
+```
+
+### When Greedy Works — Activity Selection
+
+Always pick the meeting that ends earliest. By leaving maximum remaining time, no future choice can make you regret this selection. The **exchange argument** holds — swapping the greedy choice for any other never improves the result.
+
+### When Greedy Fails — Coin Change
+
+```
+coins = [1, 3, 4], amount = 6
+
+Greedy (take largest first):
+take 4 → 2 remaining → take 1 → take 1 → 3 coins
+
+Optimal:
+take 3 → take 3 → 2 coins
+```
+
+Choosing `4` seemed best locally but forced two `1`s. The exchange argument fails — no consistent rule guarantees the greedy choice leads to the global optimum for arbitrary denominations.
+
+**Note:** US coins `[25,10,5,1]` are specifically structured so greedy always works. Arbitrary denominations require DP.
+
+### Greedy vs DP Decision
+
+```
+"If I make this choice now, could I ever regret it later?"
+
+No → Greedy sufficient
+Yes → Need DP
+```
+
+|Property |Greedy |DP |
+|-----------------------|------------------|-----------------------|
+|Optimal substructure |Yes |Yes |
+|Greedy choice property |Yes |No |
+|Reconsider past choices|Never |Via memoization |
+|Time complexity |Usually O(N log N)|Usually O(N²) or O(N·M)|
+
+### Common Greedy Problems
+
+|Problem |Greedy Choice |Why It Works |
+|------------------------------|--------------------------|--------------------------|
+|Activity selection |Earliest end time |Maximises remaining time |
+|#455 Assign Cookies |Smallest sufficient cookie|Wastes least capacity |
+|#435 Non-overlapping Intervals|Earliest end time |Same as activity selection|
+|#763 Partition Labels |Extend to last occurrence |Ensures self-containment |
+|Dijkstra’s shortest path |Nearest unvisited node |Optimal substructure holds|
+
+-----
+
+## Dynamic Programming — Full Picture
+
+### Three Categories
+
+**1. Optimisation** — find minimum, maximum, or best value:
+
+```
+#322 Coin Change dp[i] = min(dp[i-coin] + 1)
+#300 Longest Increasing Subsequence dp[i] = max(dp[j] + 1)
+#72 Edit Distance dp[i][j] = min(insert, delete, replace)
+#53 Maximum Subarray dp[i] = max(dp[i-1] + nums[i], nums[i])
+```
+
+**2. Counting** — count the number of ways:
+
+```
+#70 Climbing Stairs dp[i] = dp[i-1] + dp[i-2]
+#518 Coin Change II dp[i] += dp[i-coin]
+#62 Unique Paths dp[i][j] = dp[i-1][j] + dp[i][j-1]
+```
+
+**3. Existence / Decision** — does a solution exist:
+
+```
+#139 Word Break dp[i] = any(dp[i-len] && word matches)
+#416 Partition Equal Subset Sum dp[i] = dp[i] || dp[i-num]
+```
+
+### The Unifying Recurrence
+
+All three categories share the same structure — only the combination operator changes:
+
+```
+Optimisation: dp[i] = min/max(dp[j] + cost)
+Counting: dp[i] = sum(dp[j])
+Existence: dp[i] = any(dp[j] && condition)
+```
+
+### Return Type as Algorithm Signal
+
+|Goal |Return type|Container|Undo step |
+|---------------|-----------|---------|-----------------|
+|All solutions |`void` |Yes |Yes |
+|First solution |`bool` |No |Yes — until found|
+|Count solutions|`int` |No |Yes |
+|Optimum value |`int` |No |Sometimes (memo) |
+
+**The rule:** if your backtracking container is only ever used to compute a single aggregate value (min, max, count), that’s a signal DP or value-returning recursion would be cleaner and faster.
+
+### Naturally DP vs Evolved From Backtracking
+
+|Problem type |Evolved from backtracking?|Example |
+|---------------------------------|--------------------------|---------------------------|
+|Choose from options, find optimum|Yes |Coin change, word break |
+|Array/sequence recurrence |No |Max subarray, LIS |
+|Grid traversal |No |Unique paths, edit distance|
+
+### Top-Down vs Bottom-Up
+
+| |Top-down |Bottom-up |
+|------------------|-------------------------|---------------------------------|
+|Implementation |Recursive + memo |Iterative + table |
+|Direction |Target → base case |Base case → target |
+|Subproblems solved|Only reachable ones |All of them |
+|Call stack |O(N) deep |None |
+|Code derivation |Natural from backtracking|Requires knowing dependency order|
+
+-----
+
+## #4 — Median of Two Sorted Arrays
+
+### Why Median Comparison/Elimination Fails
+
+The median elimination strategy is **fundamentally unworkable**, not just incorrectly implemented. The invariant “the combined median lies within the remaining windows” cannot be maintained because the two arrays have different sizes. Eliminating equal amounts from both sides changes the combined median unpredictably:
+
+- **Aggressive elimination** — discards the actual median
+- **Conservative elimination** — windows don’t shrink, infinite loop
+
+There is no consistent elimination rule that works for all size combinations. This is the wrong mental model entirely.
+
+### Correct Approach: Binary Search on Partition
+
+The right question is not “which half can I discard?” but “where does the partition that splits the combined array in half sit?”
+
+**Invariant:**
+
+```
+p1 + p2 == half (left halves have correct total count)
+maxLeft1 <= minRight2 && maxLeft2 <= minRight1 (cross-partition order holds)
+```
+
+**Binary search direction is always unambiguous:**
+
+```
+maxLeft1 > minRight2 → p1 too large, move left
+maxLeft2 > minRight1 → p1 too small, move right
+both hold → valid partition found
+```
+
+```cpp
+class Solution {
+public:
+double findMedianSortedArrays(vector<int>& nums1, vector<int>& nums2) {
+if (nums1.size() > nums2.size())
+return findMedianSortedArrays(nums2, nums1); // always search smaller
+
+const int m = static_cast<int>(nums1.size());
+const int n = static_cast<int>(nums2.size());
+const int half = (m + n + 1) / 2;
+
+int lo = 0, hi = m;
+while (lo <= hi) {
+int p1 = lo + (hi - lo) / 2;
+int p2 = half - p1;
+
+int maxLeft1 = (p1 == 0) ? INT_MIN : nums1[p1 - 1];
+int minRight1 = (p1 == m) ? INT_MAX : nums1[p1];
+int maxLeft2 = (p2 == 0) ? INT_MIN : nums2[p2 - 1];
+int minRight2 = (p2 == n) ? INT_MAX : nums2[p2];
+
+if (maxLeft1 <= minRight2 && maxLeft2 <= minRight1) {
+if ((m + n) % 2 == 1)
+return max(maxLeft1, maxLeft2);
+return (max(maxLeft1, maxLeft2) + min(minRight1, minRight2)) / 2.0;
+} else if (maxLeft1 > minRight2) {
+hi = p1 - 1;
+} else {
+lo = p1 + 1;
+}
+}
+return 0.0;
+}
+};
+```
+
+### Why `INT_MIN` / `INT_MAX` as Sentinels
+
+```
+p1 == 0 → nums1 contributes nothing to left half → maxLeft1 = INT_MIN
+ensures it never fails the maxLeft1 <= minRight2 check
+
+p1 == m → nums1 contributes nothing to right half → minRight1 = INT_MAX
+ensures it never passes as a minimum incorrectly
+```
+
+### Trace: `nums1 = [1,4,5]`, `nums2 = [2,3]`
+
+```
+m=3, n=2, half=3, lo=0, hi=3
+
+p1=1, p2=2:
+maxLeft1=1, minRight1=4, maxLeft2=3, minRight2=INT_MAX
+1 <= INT_MAX ✓, 3 <= 4 ✓ → valid partition
+total=5 odd → return max(1,3) = 3 ✓
+```
+
+### Complexity
+
+| |Median Elimination |Partition Binary Search|
+|-----------|--------------------|-----------------------|
+|Time |Unbounded — can loop|O(log(min(m,n))) |
+|Space |O(1) |O(1) |
+|Correctness|Fundamentally broken|Provably correct |
+
+-----
+
+## Key Takeaways
+
+- If a backtracking container is only used to compute a single aggregate (min, max, count), that’s a signal to use DP or value-returning recursion instead.
+- The mutate/restore pattern from backtracking (`amount -= coin ... amount += coin`) is unnecessary when `amount` is passed by value — passing `amount - coin` directly makes the independence of each loop iteration explicit.
+- DP is a paradigm, not an implementation style. Top-down (recursion + memo) and bottom-up (iteration + table) are both DP. The memoization is what makes it DP, not the switch to iteration.
+- Greedy fails for coin change because the exchange argument doesn’t hold for arbitrary denominations — US coins are specifically structured to make greedy work.
+- The coin change problem is the textbook example for why greedy fails and DP is necessary — know the `[1,3,4], amount=6` counterexample.
+- For #4, the median elimination strategy is fundamentally unworkable — not just buggy. The partition approach asks the right question and yields a clean binary search with unambiguous direction at every step.
+- Recognising when an intuitive approach is the wrong mental model entirely — and pivoting quickly — is the actual skill being tested in hard binary search problems.
+
+-----
+
+*Logged from Claude study session · March 29, 2026*
