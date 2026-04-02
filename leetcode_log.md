@@ -2713,3 +2713,302 @@ total=5 odd → return max(1,3) = 3 ✓
 -----
 
 *Logged from Claude study session · March 29, 2026*
+
+# C++ LeetCode Study Log
+**Wednesday, April 1, 2026**
+
+---
+
+## Problems Covered
+
+| # | Problem | Difficulty | Status |
+|---|---|---|---|
+| #881 | Rescue Boats | Medium | Two-pointer + greedy proof |
+| #56 | Merge Intervals | Medium | In-place marking → result vector |
+| #48 | Rotate Image | Medium | Cyclic swap vs transpose+reverse |
+| #371 | Sum of Two Integers | Medium | Bit manipulation, C++17 UB discussion |
+| #76 | Minimum Window Substring | Hard | Sliding window, hidden O(N²) bug |
+| #128 | Longest Consecutive Sequence | Medium | Hash set, sequence-start optimisation |
+| #133 | Clone Graph | Medium | DFS + visited map, smart pointer pitfalls |
+
+---
+
+## #881 — Rescue Boats: Greedy + Two-Pointer
+
+### Progression
+
+| Version | Time | Space | Key Change |
+|---|---|---|---|
+| Initial (nested loop) | O(N²) | O(N) | onboard[] visited array |
+| Intermediate | O(N log N) | O(N) | lightest pointer, O(1) inner |
+| Final | O(N log N) | O(1) | Two-pointer, no auxiliary array |
+
+### Final Solution
+
+```cpp
+sort(people.begin(), people.end());
+while (lo <= hi) {
+    if (people[lo] + people[hi] <= limit) ++lo;
+    --hi;
+    ++boats;
+}
+```
+
+`weighiest--` post-decrements — the value used in the comparison is `people[weighiest]` before the decrement. The decrement happens regardless of the condition, meaning the heaviest person always consumes a boat.
+
+### Greedy vs Two-Pointer
+
+These are independent concepts applied simultaneously:
+
+- **Greedy** — the *strategy*: always send the heaviest person, pair with the lightest if possible.
+- **Two-pointer** — the *implementation technique*: two indices move toward each other to avoid redundant scanning.
+
+| | Single pointer | Two-pointer |
+|---|---|---|
+| **Greedy** | Intermediate version | Final version |
+| **Not greedy** | Linear scan | Pair-sum search |
+
+### Exchange Argument (Correctness Proof)
+
+Suppose optimal solution S pairs `(Heavy, Mid)` leaving `Light` unpaired. Swap Mid and Light:
+
+- `(Heavy, Light)` — valid, since `Light ≤ Mid`, so `Heavy + Light ≤ Heavy + Mid ≤ limit` ✓
+- `Mid` takes Light's old slot — worst case Mid goes alone, no extra boat ✓
+
+The swap never increases boat count. Any solution can be iteratively transformed into the greedy solution without cost increase — therefore greedy is optimal.
+
+### Algorithm Strategy Spectrum
+
+| | Greedy | Dynamic Programming | Backtracking |
+|---|---|---|---|
+| **Past decisions** | Never revisited | Stored and reused | Actively undone |
+| **Correctness** | Exchange argument required | Always optimal | Always complete |
+| **Typical complexity** | O(N log N) | O(N²) or O(N³) | Exponential |
+
+Backtracking is a depth-first search over a decision tree — it needs full path history to backtrack up the tree. Greedy never builds that tree at all.
+
+### Two-Person Constraint
+
+The constraint is explicit in the problem, not an assumption. Without it the problem becomes NP-hard Bin Packing — no polynomial exact solution exists. The two-person constraint is precisely what makes the exchange argument clean.
+
+```
+[60, 60, 60, 100, 100, 100], limit = 180
+
+"Pack densely": (60,60,60), (100), (100), (100) = 4 boats
+"Greedy pair":  (60,100),   (60,100), (60,100)  = 3 boats
+```
+
+---
+
+## #56 — Merge Intervals: In-place Marking → Result Vector
+
+### Progression
+
+| Version | Space | Notes |
+|---|---|---|
+| In-place mark & erase | O(1) | Clever but mutates input, non-idiomatic |
+| Result vector | O(N) | Does not mutate input, immediately readable |
+
+### Final Solution
+
+```cpp
+sort(intervals.begin(), intervals.end());
+for (auto& interval : intervals) {
+    if (result.empty() || result.back()[1] < interval[0])
+        result.push_back(interval);
+    else
+        result.back()[1] = max(result.back()[1], interval[1]);
+}
+```
+
+`||` short-circuits — `result.back()` is never called when `result.empty()` is true. Default lexicographic sort on `vector<vector<int>>` handles the multi-key sort without a custom comparator.
+
+Not mutating the input is preferred in production — callers rarely expect their data modified.
+
+---
+
+## #48 — Rotate Image: Cyclic Swap vs Transpose+Reverse
+
+### Two Approaches
+
+```cpp
+// Approach 1: Cyclic 4-way swap
+int tmp = matrix[i][j];
+matrix[i][j]         = matrix[n-1-j][i];
+matrix[n-1-j][i]     = matrix[n-1-i][n-1-j];
+matrix[n-1-i][n-1-j] = matrix[j][n-1-i];
+matrix[j][n-1-i]     = tmp;
+
+// Approach 2: Transpose + reverse rows (interview preferred)
+for (int i = 0; i < n; ++i)
+    for (int j = i+1; j < n; ++j) swap(matrix[i][j], matrix[j][i]);
+for (auto& row : matrix) reverse(row.begin(), row.end());
+```
+
+| | Cyclic swap | Transpose + reverse |
+|---|---|---|
+| Swaps | n²/4 (each element once) | n²/2 + n²/2 (each element twice) |
+| Readability | Requires deriving the cycle formula | Two obvious geometric steps |
+| Interview | Hard to justify under pressure | Easy to state intuitively |
+
+`col = (n+1)/2` is cleaner ceiling division than the ternary `n%2 ? n/2+1 : n/2`.
+
+---
+
+## #371 — Sum of Two Integers: Bit Manipulation
+
+### Final Solution
+
+```cpp
+while (b) {
+    int carry = (a & b) << 1;
+    a ^= b;
+    b = carry;
+}
+return a;
+```
+
+XOR computes sum without carry. AND then left-shift computes carry bits. The temporary variable for carry is essential — updating `a` before computing carry corrupts the result.
+
+### C++17 Undefined Behaviour
+
+Left-shifting into or past the sign bit is UB in C++17 and earlier. Safe here only due to problem constraints (`|a|, |b| ≤ 1000`). In C++20, two's complement is mandated by the standard and this concern disappears.
+
+**Termination guarantee:** carry bits shift left one position per iteration and eventually fall off the MSB — the loop always terminates.
+
+---
+
+## #76 — Minimum Window Substring: Sliding Window
+
+### Progression
+
+| Version | Time | Key Issue |
+|---|---|---|
+| countIsEnough O(58) scan | O(58N) | Full array scan per shrink step |
+| ss_effective_size counter | O(N) | O(1) counter replaces scan |
+| substr() in hot path | O(N²) string cost | Hidden allocation per minimum update |
+| Index tracking + single substr | O(N) | Production quality |
+
+### The Hidden O(N²) Bug
+
+```cpp
+// WRONG — O(N) string allocation inside the shrink loop
+ss = s.substr(start, window_size);
+
+// CORRECT — track indices, single allocation at return
+if (window_size < min_size) { min_size = window_size; result_start = start; }
+...
+return s.substr(result_start, min_size);  // one allocation
+```
+
+### Final Solution
+
+```cpp
+for (int i = 0; i < s_size; ++i) {
+    // expand right
+    if (t_count[ci] && ss_count[ci]++ < t_count[ci]) ++ss_effective_size;
+    // shrink left
+    while (ss_effective_size == t_size) {
+        if (i - start + 1 < min_size) { min_size = i - start + 1; result_start = start; }
+        if (ss_count[si] && --ss_count[si] < t_count[si]) --ss_effective_size;
+        while (++start <= i && t_count[s[start] - 'A'] == 0);
+    }
+}
+return s.substr(result_start, min_size);
+```
+
+Expand-then-shrink ordering eliminates the awkward `i <= s_size` flush iteration and off-by-one boundary conditions.
+
+### ss_effective_size vs formed/required
+
+Both are O(1) per update and equivalent in result:
+
+| | formed/required | ss_effective_size |
+|---|---|---|
+| Tracks | Distinct chars fully satisfied | Total character satisfactions |
+| Variables | Two (formed, required) | One |
+
+---
+
+## #128 — Longest Consecutive Sequence: Hash Set
+
+### Final Solution
+
+```cpp
+unordered_set<int> s(nums.begin(), nums.end());
+for (int n : s) {
+    if (s.count(n - 1)) continue;   // only start from sequence beginnings
+    int length = 1;
+    while (s.count(n + length)) ++length;
+    longest = max(longest, length);
+}
+```
+
+Only expand rightward from sequence starts (where `n-1` not in set). No visited tracking needed — each number is touched at most once across all inner while iterations, giving O(N) amortised.
+
+`unordered_map<int, bool>` merges two concerns (existence + visited marking) awkwardly. `unordered_set<int>` is the correct container. Iterating over the set rather than `nums` avoids redundant processing of duplicate values.
+
+---
+
+## #133 — Clone Graph: DFS + Visited Map
+
+### Bugs Fixed
+
+| Bug | Symptom | Fix |
+|---|---|---|
+| `static` map | Persists across LeetCode test cases | Remove static |
+| `unique_ptr` ownership | Double-free with judge's cleanup | Raw pointer, judge owns memory |
+| `int val` as map key | Fails if values not unique | `Node*` as key |
+| No early return on visited | Duplicate neighbors added on revisit | Return immediately if in map |
+
+### Final Solution
+
+```cpp
+Node* dfs(Node* node, unordered_map<Node*, Node*>& visited) {
+    if (auto it = visited.find(node); it != visited.end())
+        return it->second;           // early return before processing neighbors
+
+    Node* clone = new Node(node->val);
+    visited[node] = clone;           // mark BEFORE recursing — prevents cycles
+
+    for (Node* n : node->neighbors)
+        clone->neighbors.push_back(dfs(n, visited));
+
+    return clone;
+}
+```
+
+Mark as visited before recursing into neighbors — prevents infinite loops on cycles. Key on `Node*` not `int val` — the problem does not guarantee unique values.
+
+### emplace() to Avoid Double Lookup
+
+```cpp
+// Two lookups — redundant
+nodes.emplace(node->val, new Node(node->val));
+c_node = nodes[node->val];
+
+// One lookup — use emplace return value directly
+auto [it, _] = nodes.emplace(node->val, new Node(node->val));
+c_node = it->second;
+```
+
+Even at amortised O(1), double lookup doubles the constant factor, doubles worst-case exposure, and is non-idiomatic. In hot-path trading code where hash maps run millions of times per second, constants matter.
+
+---
+
+## Key Takeaways
+
+- **Greedy and two-pointer are independent axes** — greedy is the strategy (what to choose), two-pointer is the implementation technique (how to traverse). The same greedy strategy can be implemented with or without two-pointer.
+- **Exchange argument template:** assume optimal S differs from greedy → identify first difference → swap to look more like greedy → show swap cannot worsen result → conclude greedy is optimal.
+- **Two-person constraint in #881 is load-bearing** — removing it turns the problem into NP-hard Bin Packing. Recognising which constraint makes an algorithm tractable is what interviewers probe for.
+- **Expand-then-shrink is the canonical sliding window pattern** — avoids flush iterations, off-by-one conditions, and `i <= size` loop bounds.
+- **substr() in a hot path is O(N²)** — string allocation inside a loop that runs O(N) times produces quadratic string cost despite linear loop structure. Track indices; allocate once at return.
+- **static local variables persist across LeetCode test cases** — never use for per-call state.
+- **Mark visited before recursing, not after** — marking on pop allows the same node to be pushed multiple times before processing, producing duplicates.
+- **emplace() returns an iterator** — `auto [it, _] = map.emplace(k, v)` avoids a second lookup; idiomatic C++17.
+- **Left-shifting into the sign bit is UB in C++17** for signed integers — resolved in C++20 where two's complement is mandated.
+- **O(58N) is technically O(N)** since 58 is a constant — but eliminating it removes a real constant factor that matters in high-frequency trading hot paths.
+
+---
+
+*Logged from Claude study session · April 1, 2026*
