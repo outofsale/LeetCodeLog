@@ -3012,3 +3012,272 @@ Even at amortised O(1), double lookup doubles the constant factor, doubles worst
 ---
 
 *Logged from Claude study session · April 1, 2026*
+
+# C++ LeetCode Study Log
+**Friday, April 3, 2026**
+
+---
+
+## Problems Covered
+
+| # | Problem | Difficulty | Status |
+|---|---|---|---|
+| #647 | Palindromic Substrings | Medium | Center expansion O(N²) + Manacher's O(N) overview |
+| #11 | Container With Most Water | Medium | O(N²) pruning → O(N) two-pointer |
+| #139 | Word Break | Medium | Backtracking → memoized top-down DP |
+
+---
+
+## #647 — Palindromic Substrings: Center Expansion
+
+### Progression
+
+| Version | Time | Space | Key Issue |
+|---|---|---|---|
+| Nested loop + ranges cache | O(N³) worst case | O(N) | ranges prunes palindrome-dense input only |
+| Center expansion (two loops) | O(N²) | O(1) | Canonical solution |
+| Manacher's algorithm | O(N) | O(N) | Rarely expected in interviews |
+
+### Final Solution
+
+```cpp
+int count = 0;
+for (int i = 1; i < size; ++i) {
+    int left = i - 1, right = i;           // even-length center
+    while (left >= 0 && right < size) {
+        if (s[left--] != s[right++]) break;
+        ++count;
+    }
+    left = i - 1; right = i + 1;           // odd-length, i is center
+    while (left >= 0 && right < size) {
+        if (s[left--] != s[right++]) break;
+        ++count;
+    }
+}
+return count + size;    // +size accounts for all single-character palindromes
+```
+
+`return count + size` cleanly avoids a separate loop for single characters — idiomatic once understood.
+
+Post-decrement/increment inside the condition is correct here (indices move regardless, but mismatch triggers `break` immediately so moved indices are discarded) — but explicit movement after the check is clearer:
+
+```cpp
+if (s[left] != s[right]) break;
+++count; --left; ++right;
+```
+
+### Why 2N-1 Centers
+
+For a string of length N there are two types of centers:
+
+```
+"abcba"  (N=5)
+
+Odd  centers (single char):    a  b  c  b  a   → 5 centers
+Even centers (between chars):  a|b b|c c|b b|a  → 4 centers
+
+Total: 5 + 4 = 9 = 2N - 1
+```
+
+The single-loop formulation `center / 2` and `center % 2` is a clever encoding but the variable name `center` is misleading — it is an index into an interleaved sequence of characters and gaps, not an actual center position. The two-loop version is more readable because the distinction between even and odd cases is stated explicitly.
+
+### Manacher's Algorithm — Conceptual Overview
+
+Manacher's reuses mirror symmetry to avoid redundant expansion. If a palindrome P is centered at C and reaches right boundary R, any center i inside `[L..R]` has a mirror `i' = 2C - i` on the left. The palindrome radius at i is at least `min(radius[i'], R - i)` — expansion is only needed when a palindrome might reach beyond R.
+
+The string is transformed `"abc" → "#a#b#c#"` to unify odd and even palindromes into a single pass. The `right` boundary only ever moves rightward — total expansions across the entire loop are O(N), giving linear time.
+
+**Honest assessment:** Manacher's is almost never expected in interviews. O(N²) center expansion is the correct answer for #647. Manacher's is worth knowing exists conceptually but memorising the implementation has low return on investment.
+
+### Key Takeaways
+
+- Two-loop center expansion is preferred over single-loop 2N-1 encoding — explicit odd/even split is immediately readable without decoding arithmetic.
+- `return count + size` for single-character palindromes is an idiomatic shortcut worth keeping.
+- Post-decrement/increment inside the condition is correct but subtle — prefer explicit movement after the check in production code.
+- Manacher's achieves O(N) by tracking the rightmost-reaching palindrome and reusing mirror symmetry — total expansions bounded by N since the right boundary only ever moves forward.
+
+---
+
+## #11 — Container With Most Water: Two-Pointer
+
+### Progression
+
+| Version | Time | Space | Notes |
+|---|---|---|---|
+| Nested loop + pruning | O(N²) worst case | O(1) | Prunings correct but don't improve worst case |
+| Two-pointer | O(N) | O(1) | Canonical solution |
+
+### Pruning Analysis (Initial Version)
+
+Both prunings in the O(N²) version were sound:
+
+**Inner skip** — if `height[j+1] > height[j]`, then for fixed `i`, `area(i, j+1)` is strictly better: wider width and taller right boundary simultaneously. Safe to skip `j`.
+
+**Outer skip** — if `height[i+1] < height[i]`, then `i+1` is dominated by `i` for all future `j`: both height and width factors are worse. Safe to skip `i+1`.
+
+Neither fires on a monotonically increasing array — worst case remains O(N²).
+
+### Final Solution
+
+```cpp
+int left = 0, right = size - 1;
+while (left < right) {
+    int area = 0;
+    if (height[left] < height[right]) {
+        area = height[left] * (right - left);
+        ++left;
+    } else {
+        area = height[right] * (right - left);
+        --right;
+    }
+    max_area = max(max_area, area);
+}
+```
+
+Branching on `height[left] < height[right]` before multiplying avoids `min()` — the shorter side is already known so the multiplication is direct.
+
+**Equal height case:** when `height[left] == height[right]`, the `else` branch moves `right` inward. This is correct — both sides are equally limiting so either can be moved. Moving both simultaneously would also be valid.
+
+### Why Moving the Shorter Side Is Safe (Exchange Argument)
+
+Suppose `height[left] ≤ height[right]`. For any `j` where `left < j < right`:
+
+```
+area(left, j) = min(h[left], h[j]) × (j - left)
+              ≤ h[left] × (j - left)       ← height capped by h[left]
+              < h[left] × (right - left)    ← width strictly smaller
+              ≤ area(left, right)            ← current area
+```
+
+`left` is exhausted — no future pairing with `left` can beat the current area. Safe to discard.
+
+### Pattern Connections
+
+| Pattern | Problems |
+|---|---|
+| Two-pointer from both ends | #881, #11 |
+| Exchange argument for greedy proof | #881, #11 |
+| Discard the weaker side | #881 (lightest person), #11 (shorter wall) |
+
+The structural similarity between #881 and #11 is direct — both reduce to "always eliminate the side that cannot possibly contribute to a better answer", proven by the same exchange argument template.
+
+### Key Takeaways
+
+- Two-pointer from both ends is the correct structure for optimisation over pairs in a sorted or bounded array.
+- Moving the shorter side is proven safe by the exchange argument — not a heuristic.
+- Branching before multiplying avoids `min()` when you already know which side is shorter.
+- Equal-height case: either side can be moved; the `else` branch choosing `right` is correct.
+
+---
+
+## #139 — Word Break: Backtracking → Memoized Top-Down DP
+
+### Progression
+
+| Version | Time | Issue |
+|---|---|---|
+| Pure backtracking | O(2^N) | Overlapping subproblems recomputed |
+| Memoized backtracking | O(N × W) | Top-down DP — each start position computed once |
+| Bottom-up DP | O(N × W) | Iterative, but anti-intuitive to derive |
+
+### Why Pure Backtracking Fails
+
+On `s = "aaaaaab"`, `wordDict = ["a", "aa"]`:
+
+```
+backtrack(0) → tries "a"  → backtrack(1)
+                          → tries "a" → backtrack(2) ...
+             → tries "aa" → backtrack(2)  ← recomputed
+```
+
+`backtrack(2)` is reached via different prefixes and recomputed each time. With overlapping words this becomes O(2^N). Pure backtracking is correct for problems where subproblems are genuinely distinct (permutations, combinations). When the same subproblem recurs, memoization is required.
+
+### Final Solution
+
+```cpp
+bool backtrack(const string& s, size_t start,
+               const vector<string>& wordDict,
+               unordered_map<size_t, bool>& memo) {
+    if (start == s.size()) return true;    // base case ALWAYS first
+    if (auto it = memo.find(start); it != memo.end()) return it->second;
+
+    for (const auto& word : wordDict) {
+        if (auto pos = s.find(word, start);
+            pos != string::npos
+            && pos == start
+            && backtrack(s, start + word.size(), wordDict, memo)) {
+            return memo[start] = true;
+        }
+    }
+    return memo[start] = false;
+}
+```
+
+**Base case before memo check** — `start == s.size()` is never in the cache and is cheap to check. The terminal state must come first: a general rule for all backtracking problems.
+
+**Cache both directions** — `memo[start] = true` on success, `memo[start] = false` on failure. Caching only failure (the initial bug) leaves successful paths recomputed on second arrival.
+
+**`memo[start] =` over `emplace`** — `emplace` won't overwrite an existing key. Both are equivalent here since the memo check at the top guarantees the key is absent, but `memo[start] =` is more idiomatic for "store this result" and pairs symmetrically in both branches.
+
+### Bottom-Up DP Alternative
+
+```cpp
+vector<bool> dp(n + 1, false);
+dp[0] = true;   // empty string always reachable
+for (int i = 1; i <= n; ++i) {
+    for (const auto& word : wordDict) {
+        const int len = static_cast<int>(word.size());
+        if (i >= len && dp[i - len] && s.substr(i - len, len) == word)
+            dp[i] = true;
+    }
+}
+return dp[n];
+```
+
+`dp[i]` means "the first i characters of s can be segmented." Builds forward from the base case rather than recursing backward.
+
+### Top-Down vs Bottom-Up — General Relationship
+
+Bottom-up is anti-intuitive for most DP problems, not just the ones encountered so far. The degree varies by problem type:
+
+| Problem type | More intuitive direction |
+|---|---|
+| Fibonacci, Climbing Stairs, Coin Change | Bottom-up — linear forward dependency is obvious |
+| Word Break, LCS, interval DP | Top-down — recursive structure mirrors the problem statement |
+
+Bottom-up is almost always *derived from* the top-down solution by: identifying what the memo table represents, determining fill order (what must be computed before what), and replacing recursive calls with table lookups. Step 2 — fill order — is where intuition breaks down. The recursion handles ordering implicitly via the call stack; bottom-up must make it explicit.
+
+**Practical advice for interviews:** start top-down, convert to bottom-up only if asked. Memoized backtracking is easier to derive correctly under pressure and is a fully valid DP solution.
+
+### Backtracking Decision Table
+
+| Situation | Approach |
+|---|---|
+| No overlapping subproblems | Pure backtracking |
+| Overlapping subproblems, need all solutions | Backtracking + pruning |
+| Overlapping subproblems, need existence/optimum | Memoized backtracking = top-down DP |
+| Overlapping subproblems, iterative preferred | Bottom-up DP |
+
+### Key Takeaways
+
+- Pure backtracking is O(2^N) when subproblems overlap — the same start position is recomputed via different prefixes.
+- Adding memoization is a cheap transformation (one cache lookup, two cache writes) that changes the complexity class from exponential to polynomial.
+- Base case always before memo check — the terminal state is never in the cache and must be handled first. A general rule for all memoized backtracking.
+- Cache both success and failure — caching only one direction leaves the other recomputed on repeated arrival.
+- `memo[start] = value` is preferred over `emplace` for "store this result" — idiomatic and symmetric across both branches.
+- Bottom-up anti-intuition is universal, not a personal gap — it reflects that bottom-up is a secondary derivation from recursive thinking, not a natural first instinct.
+
+---
+
+## Key Takeaways
+
+- **Center expansion over single-loop encoding** — two explicit loops for odd and even cases are more readable than the 2N-1 encoded center variable.
+- **Exchange argument applies beyond greedy** — both #881 and #11 use the same template: assume a deviation, show a swap cannot worsen the result, conclude the greedy choice is safe. Recognising this common structure across problems is what interviewers test for.
+- **Memoized backtracking is top-down DP** — the transition from pure backtracking to memoized backtracking is the key skill: recognise overlapping subproblems, add a cache, store results in both success and failure directions.
+- **Base case always first in backtracking** — before any memo lookup, pruning, or loop. The terminal state is never in the cache and must short-circuit immediately.
+- **Bottom-up DP is a derived form** — it is almost always obtained by inverting the recursion, not derived independently. Top-down is the natural starting point under interview pressure.
+- **Manacher's is O(N) but rarely expected** — conceptual understanding (mirror symmetry, rightmost boundary) is sufficient; implementation memorisation has low return on investment.
+
+---
+
+*Logged from Claude study session · April 3, 2026*
