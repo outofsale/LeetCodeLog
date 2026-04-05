@@ -3281,3 +3281,299 @@ Bottom-up is almost always *derived from* the top-down solution by: identifying 
 ---
 
 *Logged from Claude study session · April 3, 2026*
+
+# C++ LeetCode Study Log
+**Saturday, April 4, 2026**
+
+---
+
+## Problems Covered
+
+| # | Problem | Difficulty | Status |
+|---|---|---|---|
+| #15 | 3Sum | Medium | Backtracking → sort + two-pointer |
+| #143 | Reorder List | Medium | Deque O(N) space → find middle + reverse + merge O(1) |
+
+---
+
+## #15 — 3Sum: Backtracking → Sort + Two-Pointer
+
+### Progression
+
+| Version | Time | Space | Deduplication |
+|---|---|---|---|
+| Backtracking + sort per triplet + comparison loop | O(N³) + O(M×3) | O(N) stack + O(M) results | Explicit comparison against all results |
+| Backtracking + sort upfront + unordered_set per level | O(N³) + O(N) per step | O(N) stack + O(N) set | Hash set tracking values used at current level |
+| Backtracking + sort upfront + `i > start` skip | O(N³) worst case | O(N) stack | One-line structural skip |
+| Sort + two-pointer | O(N²) | O(1) auxiliary | Skip equal neighbors in-place |
+
+### Deduplication Strategies
+
+**Strategy 1 — Sort + `i > start && nums[i] == nums[i-1]`**
+
+The standard backtracking deduplication idiom on sorted arrays. Skips `nums[i]` only when `nums[i-1]` was already tried as the **same combination slot** in this call — meaning `i-1 >= start`:
+
+```cpp
+sort(nums.begin(), nums.end());
+for (int i = start; i < n; ++i) {
+    if (i > start && nums[i] == nums[i-1]) continue;  // skip duplicate at this level
+    ...
+}
+```
+
+Critical distinction — the boundary is `start`, not `0`. The same value can appear in different slots at different recursion levels:
+
+```
+nums = [-4, 2, 2] — both 2s correctly included:
+
+slot 1 call (start=0): i=0 (-4), i>0? No → proceed
+  slot 2 call (start=1): i=1 (2), i>1? No → proceed
+    slot 3 call (start=2): i=2 (2), i>2? No → proceed → comb=[-4,2,2] ✓
+
+Each 2 is picked at a different recursion level so i > start never fires for either.
+```
+
+**Strategy 2 — Unsorted + `unordered_set` per level**
+
+```cpp
+unordered_set<int> used;   // declared INSIDE backtrack — fresh per call
+for (int i = start; i < n; ++i) {
+    if (used.count(nums[i])) continue;
+    used.insert(nums[i]);
+    comb.push_back(nums[i]);
+    backtrack(nums, i + 1, sum + nums[i], result, comb);
+    comb.pop_back();
+}
+```
+
+`used` must be local to each call — if shared across recursion levels it incorrectly blocks the same value from appearing in different slots. Tracks values not indices, so it handles consecutive duplicates of any length correctly.
+
+| | Sort + `i > start` | Unsorted + hash set |
+|---|---|---|
+| Sort required | Yes | No |
+| Space per level | O(1) | O(N) |
+| Additional pruning | Enabled (`nums[i] > 0 → break`) | Not possible |
+| Correctness risk | Clear — `start` boundary | Subtle — `used` must be local |
+
+Sort + `i > start` is almost always preferred — simpler, no extra space, enables magnitude-based pruning.
+
+### Final Solution — Sort + Two-Pointer
+
+```cpp
+vector<vector<int>> threeSum(vector<int> nums) {
+    sort(nums.begin(), nums.end());
+    vector<vector<int>> result;
+    const int n = static_cast<int>(nums.size());
+
+    for (int i = 0; i < n - 2; ++i) {
+        if (i > 0 && nums[i] == nums[i-1]) continue;   // skip duplicate first elements
+        if (nums[i] > 0) break;                         // sorted — remaining sums all positive
+
+        int left = i + 1, right = n - 1;
+        while (left < right) {
+            int sum = nums[i] + nums[left] + nums[right];
+            if (sum == 0) {
+                result.push_back({nums[i], nums[left], nums[right]});
+                while (left < right && nums[left]  == nums[left+1])  ++left;
+                while (left < right && nums[right] == nums[right-1]) --right;
+                ++left; --right;
+            } else if (sum < 0) ++left;
+            else                --right;
+        }
+    }
+    return result;
+}
+```
+
+### The Mental Leap to Two-Pointer
+
+"Find all triplets" pattern-matches immediately to backtracking. The unlock is a reframing:
+
+```
+Instead of: "find all three elements that sum to 0"
+Think as:   "fix one element, then find a pair that sums to its negative"
+```
+
+Once `nums[i]` is fixed, the problem reduces to **two-sum on a sorted subarray** — the classic two-pointer problem. This reduction generalises:
+
+| Problem | Reduction |
+|---|---|
+| 3Sum | Fix 1 → two-pointer 2Sum |
+| 4Sum | Fix 2 → two-pointer 2Sum |
+| #11 Container With Most Water | Fix both ends → move shorter side |
+| #881 Rescue Boats | Fix heaviest → find best partner |
+
+When a problem involves k elements summing to a target, fix k-2 of them and reduce to two-pointer on the remainder. Backtracking is the fallback when no such structure exists.
+
+In interviews it is acceptable — and often expected — to start with backtracking and say: "this works but it's O(N³); if I fix the first element, the remaining two-element search becomes a two-pointer sweep reducing it to O(N²)." Showing the progression demonstrates deeper understanding than jumping to the optimal solution.
+
+### Backtracking vs Two-Pointer Decision
+
+| Problem | Backtracking appropriate? | Reason |
+|---|---|---|
+| #39 Combination Sum | Yes | Need all combinations, no exploitable structure |
+| #46 Permutations | Yes | Genuinely distinct paths |
+| #139 Word Break | No — use memo | Overlapping subproblems |
+| #15 3Sum | No — use two-pointer | Sorted structure eliminates exhaustive search |
+
+### Key Takeaways
+
+- `i > start && nums[i] == nums[i-1]` skips duplicates **at the same recursion level** only — the `start` boundary is what makes it correct, not `i > 0`.
+- The same value appearing in different slots at different recursion levels is not a duplicate — this is why `[-4, 2, 2]` correctly produces one triplet.
+- Sort upfront enables both structural deduplication and magnitude-based pruning (`nums[i] > 0 → break`) — two benefits from one transformation.
+- Unsorted + hash set works but `used` must be local per call, not shared — a subtle correctness requirement.
+- 3Sum → fix one element → 2Sum on sorted subarray → two-pointer: internalise this reduction as a general pattern.
+
+---
+
+## #143 — Reorder List: Three Linked List Techniques
+
+### Progression
+
+| Version | Time | Space | Notes |
+|---|---|---|---|
+| Deque | O(N) | O(N) | Correct, intuitive, but unnecessary allocation |
+| Find middle + reverse + merge | O(N) | O(1) | Canonical — composition of three fundamental techniques |
+
+### Deque Solution
+
+```cpp
+deque<ListNode*> dq;
+ListNode* current = head->next;
+while (current) { dq.push_back(current); current = current->next; }
+
+current = head;
+while (!dq.empty()) {
+    auto node = dq.back(); dq.pop_back();
+    current->next = node; current = current->next;
+    if (!dq.empty()) {
+        node = dq.front(); dq.pop_front();
+        current->next = node; current = current->next;
+    }
+}
+current->next = nullptr;   // critical — last node still points to old neighbor without this
+```
+
+`current->next = nullptr` is non-obvious but mandatory — without it the last node retains its original `next` pointer causing a cycle or dangling chain.
+
+### Three Sub-Patterns
+
+This problem decomposes into three fundamental linked list techniques that appear independently across many problems:
+
+| Technique | Problems |
+|---|---|
+| Slow/fast pointer to find middle | #876, #143, cycle detection |
+| Reverse a linked list in place | #206, #143, #25 |
+| Merge two linked lists alternately | #21, #143 |
+
+Recognising the decomposition is the insight interviewers look for — not the deque shortcut.
+
+### Final Solution
+
+```cpp
+void reorderList(ListNode* head) {
+    // Step 1: find middle
+    ListNode* slow = head, *fast = head, *median = head;
+    while (fast && fast->next) {
+        fast = fast->next->next;
+        median = slow = slow->next;
+    }
+
+    // Step 2: cut and reverse second half
+    auto current = median->next;
+    median->next = nullptr;         // cut explicitly — clear intent
+    if (!current) return;           // single element or empty — nothing to merge
+    ListNode* previous = nullptr;
+    while (current) {
+        auto next = current->next;
+        current->next = previous;
+        previous = current;
+        current = next;
+    }
+
+    // Step 3: merge two halves
+    current = head;
+    ListNode* second = previous;    // head of reversed second half
+    while (second) {
+        auto tmp1 = current->next;
+        auto tmp2 = second->next;
+        current->next = second;
+        second->next  = tmp1;
+        current = tmp1;
+        second  = tmp2;
+    }
+}
+```
+
+### The Repurposed Variable Bug
+
+The initial O(1) solution repurposed `fast` across all three steps — fast pointer in step 1, then reassigned to the reversed head in step 2 via:
+
+```cpp
+if(next == nullptr || fast == nullptr) fast = previous;
+```
+
+This caused `heap-use-after-free` on `[1]` (single element):
+
+```
+Step 1: fast = node(1), median = node(1)
+Step 2: median->next = null → reverse loop never executes → fast never reassigned
+Step 3: current = head = node(1), fast = node(1)
+        fast->next = current->next = null
+        current->next = fast → node(1)->next = node(1)  ← self-cycle
+Judge traverses cycle → accesses freed memory → AddressSanitizer fires
+```
+
+**Fix attempted:** `while(fast && fast != current)` — guards the self-cycle case but for the wrong reason. Works incidentally because `fast == head` in the single-element case.
+
+**Correct fix:** `if (!median->next) return;` — states the intent directly. If there is nothing after the median, there is no second half to merge. No reasoning about what `fast` might equal required.
+
+### Code Review Checklist for Linked List Problems
+
+| Risk | Guard |
+|---|---|
+| Repurposed variable across phases | Use dedicated named variables per phase |
+| Dense multi-assignment initialisation | Split into separate statements |
+| Last node retains old `next` | Explicitly set `current->next = nullptr` after merge |
+| Empty or single-element input | Guard before each phase, not just at entry |
+| Cycle from self-assignment | Explicit cut (`median->next = nullptr`) before reverse |
+
+### Key Takeaways
+
+- #143 decomposes into three independently useful patterns: find middle (slow/fast), reverse in place, merge alternately. Recognising the decomposition is the interview insight.
+- Repurposing a variable across multiple phases of an algorithm makes correctness dependent on non-obvious invariants — dedicate one variable per role.
+- `heap-use-after-free` from AddressSanitizer on a linked list problem almost always means a cycle was created — trace the single-element and two-element cases first.
+- `if (!median->next) return` is the semantically correct early exit — prefer guards that state intent over guards that happen to work.
+- `current->next = nullptr` after the merge loop is mandatory — the last node of the first half still holds its original pointer without it.
+
+---
+
+## Concepts: Backtracking Deduplication Patterns
+
+### When to Sort First
+
+Sorting upfront is almost always the right first step when the problem involves:
+- Finding combinations summing to a target
+- Deduplicating results
+- Any pruning based on element magnitude
+
+It is one of the first transformations to consider before writing the backtracking logic.
+
+### Deduplication Rule Summary
+
+```
+Sorted array:
+  if (i > start && nums[i] == nums[i-1]) continue;
+  → skips duplicate values at the same combination slot
+  → allows the same value in different slots at different levels
+
+Unsorted array:
+  unordered_set<int> used;  // LOCAL to this call
+  if (used.count(nums[i])) continue;
+  → tracks values tried at this slot only
+  → must be re-declared each call, never shared
+```
+
+---
+
+*Logged from Claude study session · April 4, 2026*
