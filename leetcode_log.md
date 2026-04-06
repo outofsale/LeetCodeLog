@@ -3577,3 +3577,286 @@ Unsorted array:
 ---
 
 *Logged from Claude study session · April 4, 2026*
+
+# C++ LeetCode Study Log
+**Sunday, April 5, 2026**
+
+---
+
+## Problems Covered
+
+| # | Problem | Difficulty | Status |
+|---|---|---|---|
+| #19 | Remove Nth Node From End of List | Medium | Two-pointer gap + dummy node pattern |
+| #23 | Merge K Sorted Lists | Hard | Priority queue O(N log k) + complexity deep dive |
+
+---
+
+## #19 — Remove Nth Node From End: Dummy Node Pattern
+
+### Correctness — Initial Version
+
+Trace on `[1,2,3,4,5]`, n=2:
+```
+Initial: tail=1, nth=1, pre=null, count=0
+
+iter 1: count(0) >= n-1(1)? No.  tail=2, count=1
+iter 2: count(1) >= 1?     Yes.  pre=1, nth=2. tail=3, count=2
+iter 3: count(2) >= 1?     Yes.  pre=2, nth=3. tail=4, count=3
+iter 4: count(3) >= 1?     Yes.  pre=3, nth=4. tail=5, count=4
+tail->next=null → exit
+
+nth=4, pre=3 → pre->next=5 ✓
+```
+
+The `nth == head` branch exists solely to handle head removal — a signal that a dummy node would eliminate the special case entirely.
+
+### Dummy Node — Eliminates the Head Special Case
+
+```cpp
+ListNode* removeNthFromEnd(ListNode* head, int n) {
+    ListNode dummy(0, head);
+    ListNode* fast = &dummy, *slow = &dummy;
+
+    // advance fast n+1 steps ahead of slow
+    for (int i = 0; i <= n; ++i) fast = fast->next;
+
+    // move both until fast falls off
+    while (fast) {
+        fast = fast->next;
+        slow = slow->next;
+    }
+
+    // slow->next is the node to remove
+    ListNode* del = slow->next;
+    slow->next = del->next;
+    del->next = nullptr;
+    return dummy.next;
+}
+```
+
+Trace on `[1,2,3,4,5]`, n=5 (remove head):
+```
+fast advances 6 steps from dummy: fast=null (falls off immediately)
+while fast: never executes, slow=dummy
+
+slow->next=1 (delete), slow->next=2
+return dummy.next=2 ✓   — no special case needed
+```
+
+The dummy node makes `slow` always point to the **predecessor** of the target node — including when the target is head — absorbing the special case uniformly.
+
+### Comparison
+
+| | Initial version | Dummy node |
+|---|---|---|
+| Time | O(N) | O(N) |
+| Space | O(1) | O(1) |
+| Head removal | Special case branch | Handled uniformly |
+| Pointers needed | 3 (tail, nth, pre) | 2 (fast, slow) |
+| Gap mechanism | count >= n-1 | Fixed n+1 steps upfront |
+
+### Key Takeaways
+
+- The dummy node is the idiomatic pattern for any linked list problem where the head might be removed — it eliminates the `if (nth == head)` branch by making the predecessor always valid.
+- Fixed n+1 gap upfront is cleaner than a counter condition — the gap is established once and both pointers move in lockstep thereafter.
+- `del->next = nullptr` after removal — same discipline as #143: explicitly cut the removed node's pointer to avoid dangling references.
+
+---
+
+## #23 — Merge K Sorted Lists: Priority Queue + Complexity Deep Dive
+
+### Complexity Notation
+
+Using standard convention throughout: **k = number of lists, N = total nodes across all lists**.
+
+### Priority Queue Solution
+
+```cpp
+ListNode* mergeKLists(vector<ListNode*>& lists) {
+    auto dummy = ListNode();
+    auto current = &dummy;
+    auto comp = [](const ListNode* left, const ListNode* right) {
+        return left->val > right->val;
+    };
+    priority_queue<ListNode*, vector<ListNode*>, decltype(comp)> pq(comp);
+
+    for (auto& list : lists)
+        if (list) pq.push(list);          // O(k log k) total
+
+    while (!pq.empty()) {                 // N iterations
+        current->next = pq.top(); pq.pop();  // O(log k)
+        current = current->next;
+        if (current->next)
+            pq.push(current->next);          // O(log k)
+    }
+    return dummy.next;
+}
+```
+
+The heap never exceeds k elements — at most one node per list is in the heap simultaneously. Each push/pop is therefore O(log k), not O(log N):
+
+```
+Initial pushes: O(k log k)
+N nodes × O(log k) per push/pop = O(N log k)
+─────────────────────────────────────────────
+Total: O(N log k)
+```
+
+### `multiset` as Alternative
+
+`multiset` can replace `priority_queue` with identical O(log k) insertion. The key difference is erase:
+
+```cpp
+multiset<ListNode*, decltype(comp)> ms(comp);
+auto it = ms.begin();   // smallest — O(1)
+ms.erase(it);           // O(log k) — red-black tree rebalance
+```
+
+| | `priority_queue` | `multiset` |
+|---|---|---|
+| Underlying structure | Binary heap (contiguous array) | Red-black tree (pointer-chasing) |
+| Access | Top only | Any iterator |
+| Erase arbitrary element | Not supported | O(log k) |
+| Cache performance | Better | Worse |
+| Duplicate handling | Natural | Requires `multiset` not `set` |
+
+`multiset` wins when arbitrary element removal mid-stream is needed — `priority_queue` cannot do it without a full rebuild. This is the container trade-off interviewers probe: not just complexity but what each container actually supports.
+
+### `const ListNode*` — Non-Modifying Version
+
+When the input lists must not be modified:
+
+```cpp
+priority_queue<const ListNode*, vector<const ListNode*>, decltype(comp)> pq(comp);
+
+while (!pq.empty()) {
+    auto top = pq.top(); pq.pop();
+    current->next = new ListNode(top->val, top->next);  // new node, original untouched
+    current = current->next;
+    if (current->next) pq.push(current->next);
+}
+```
+
+`top->next` in the constructor is **essential** — it temporarily carries the remainder of the original chain so that `current->next != nullptr` correctly triggers the next push. Without it, only the first node of each list ever enters the heap and all subsequent nodes are silently lost.
+
+`const ListNode*` enforces the non-modification contract at the type level — the compiler catches any accidental write to original nodes. In a trading system where order book data is shared across multiple consumers, this is the correct design.
+
+**Memory note:** `new ListNode` leaks in production — the caller receives ownership but has no way to know the nodes were heap-allocated. Options: document the contract, return `unique_ptr`, or use an arena allocator (common in low-latency trading code).
+
+### Sequential Merge — Simple But O(Nk)
+
+```cpp
+ListNode* mergeKLists(vector<ListNode*>& lists) {
+    ListNode* head = nullptr;
+    for (auto& list : lists)
+        head = mergeTwoLists(head, list);
+    return head;
+}
+```
+
+Intuition says this should be O(N) since `mergeTwoLists` processes only the current pair. The trap: the merged list grows each iteration, so early lists are re-traversed in every subsequent merge:
+
+```
+merge(null,   list1): touches n1 nodes
+merge(result, list2): touches n1+n2 nodes
+merge(result, list3): touches n1+n2+n3 nodes
+...
+merge(result, listk): touches all N nodes
+─────────────────────────────────────────
+Total = N/k × (1+2+...+k) = O(Nk)
+```
+
+### Divide and Conquer — O(N log k), No Heap
+
+```cpp
+ListNode* mergeKLists(vector<ListNode*>& lists) {
+    if (lists.empty()) return nullptr;
+    int size = static_cast<int>(lists.size());
+    while (size > 1) {
+        for (int i = 0; i < size / 2; ++i)
+            lists[i] = mergeTwoLists(lists[i], lists[size - 1 - i]);
+        size = (size + 1) / 2;
+    }
+    return lists[0];
+}
+```
+
+Merges in pairs like merge sort — each round touches all N nodes, but there are only log k rounds:
+
+```
+Round 1: [1,2] [3,4] ... → k/2 lists, N nodes touched
+Round 2: [1,2,3,4] ...   → k/4 lists, N nodes touched
+...
+log k rounds × N nodes = O(N log k)
+```
+
+### Why Divide and Conquer Beats Sequential — The Core Insight
+
+```
+Total work = (elements per round) × (number of rounds)
+```
+
+**Sequential** minimises elements per round but pays with linearly growing rounds:
+
+```
+Elements per round: n1, n1+n2, n1+n2+n3, ...   ← growing
+Rounds:             k                            ← linear
+Product:            O(Nk)
+```
+
+**Divide and conquer** accepts full N elements every round but crushes the round count:
+
+```
+Elements per round: N     ← always full
+Rounds:             log k ← logarithmic
+Product:            O(N log k)
+```
+
+The counterintuitive conclusion: **processing fewer elements per round is not always cheaper** if it forces more rounds. Even though sequential merge always involves fewer than N elements per round, the additional rounds required outweigh the per-round savings.
+
+Visualised:
+
+```
+Sequential:                    Divide and conquer:
+
+L1 ──────────────────────►    L1 ──┐
+L2 ──────────────────►    │    L2 ──┘merge──┐
+L3 ──────────────►        │    L3 ──┐       │merge
+L4 ────────────►          │    L4 ──┘merge──┘
+     ↑ L1 re-touched k times    ↑ every list touched log k times
+```
+
+### The Same Pattern Everywhere
+
+| Algorithm | "Fewer per round" trap | Balanced approach |
+|---|---|---|
+| K-way merge | Sequential — O(k) rounds, growing size | Divide & conquer — O(log k) rounds × O(N) |
+| Sorting | Insertion sort — O(N) rounds × O(N) work | Merge sort — O(log N) rounds × O(N) |
+| Search | Linear scan — O(N) rounds × O(1) | Binary search — O(log N) rounds × O(1) |
+| BST operations | Linked list — O(N) levels | Balanced BST — O(log N) levels |
+
+Logarithmic round count almost always beats minimising per-round work — log k grows so slowly that paying full N per round is a bargain.
+
+### Full Comparison
+
+| | Sequential merge | Priority queue | Divide and conquer |
+|---|---|---|---|
+| Time | O(Nk) | O(N log k) | O(N log k) |
+| Space | O(1) | O(k) heap | O(log k) stack |
+| Heap allocation | No | Yes | No |
+| Implementation complexity | Lowest | Medium | Medium |
+| Latency-sensitive use | Acceptable for small k | Standard | Preferred — no heap |
+
+### Key Takeaways
+
+- Heap size in priority queue is bounded by k, not N — push/pop is O(log k) not O(log N). Stating this distinction precisely in an interview signals depth.
+- `multiset` vs `priority_queue`: identical asymptotic complexity, but `multiset` supports arbitrary erasure at O(log k). Use `multiset` when mid-stream removal of non-minimum elements is required.
+- `top->next` in `new ListNode(top->val, top->next)` is essential for the non-modifying version — without it, only the first node of each list enters the heap and all subsequent nodes are silently dropped.
+- Sequential merge is O(Nk) not O(N) — the merged accumulator grows each round, re-traversing early list nodes in every subsequent merge.
+- Total work = elements per round × number of rounds. Fewer elements per round does not always win — more rounds can outweigh the per-round saving. This is the same reason merge sort beats insertion sort.
+- Divide and conquer achieves O(N log k) without heap allocation — preferred in latency-sensitive trading code where heap overhead matters.
+
+---
+
+*Logged from Claude study session · April 5, 2026*
