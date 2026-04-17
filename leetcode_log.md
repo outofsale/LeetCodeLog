@@ -3860,3 +3860,372 @@ Logarithmic round count almost always beats minimising per-round work — log k 
 ---
 
 *Logged from Claude study session · April 5, 2026*
+
+# C++ LeetCode Study Log
+**Monday, April 6, 2026**
+
+---
+
+## Problems Covered
+
+| # | Problem | Difficulty | Status |
+|---|---|---|---|
+| #152 | Maximum Product Subarray | Medium | O(N²) memo → O(N) max/min tracking + prefix/suffix proof |
+| #33 | Search in Rotated Sorted Array | Medium | Binary search with pre-checked boundary equality |
+| #417 | Pacific Atlantic Water Flow | Medium | BFS/DFS traversal + constexpr deep dive |
+| #295 | Find Median from Data Stream | Hard | Sorted list O(N) → two heaps O(log N) |
+
+---
+
+## #152 — Maximum Product Subarray: Max/Min Tracking
+
+### Progression
+
+| Version | Time | Space | Notes |
+|---|---|---|---|
+| Memoized nested loop | O(N²) | O(N²) + hash overhead | Correctly diagnosed as ceiling for this approach |
+| Max/min tracking | O(N) | O(1) | Canonical solution |
+| Prefix/suffix scan | O(N) | O(1) | Alternative — proven correct via boundary argument |
+
+### Why Pure Memoization Cannot Improve Beyond O(N²)
+
+Each subarray product `[i..j]` depends on `product[i+1..j]` — no way to collapse the two-level dependency into a single pass. The overlapping subproblems are unavoidable with this formulation.
+
+### The O(N) Insight — Dual Nature of Negatives
+
+A large negative product can become the largest positive when multiplied by another negative. Tracking only max loses this information. Both must be tracked:
+
+```cpp
+int maxProduct(const vector<int>& nums) {
+    int max_prod = nums[0], min_prod = nums[0], result = nums[0];
+
+    for (int i = 1; i < static_cast<int>(nums.size()); ++i) {
+        // compute both before updating — same discipline as #371
+        int candidate_max = max({nums[i], max_prod * nums[i], min_prod * nums[i]});
+        int candidate_min = min({nums[i], max_prod * nums[i], min_prod * nums[i]});
+        max_prod = candidate_max;
+        min_prod = candidate_min;
+        result = max(result, max_prod);
+    }
+    return result;
+}
+```
+
+Trace on `[2, -3, -4]`:
+```
+i=0: max=2,   min=2,   result=2
+i=1: max=-3,  min=-6,  result=2
+i=2: max=24,  min=-4,  result=24 ✓  (-6 × -4 = 24)
+```
+
+### The Three Candidates — What Each Means
+
+```
+nums[i]              → start a brand new subarray here
+max_prod × nums[i]   → extend the best subarray ending at i-1
+min_prod × nums[i]   → extend the worst subarray ending at i-1
+                        (only useful when nums[i] is negative)
+```
+
+### The Implicit Boundary Insight
+
+The mental block: "how does max_prod capture a subarray starting in the middle?" The resolution: `max_prod` at position i means "the best product of any subarray ending exactly at i." The starting index is never needed — the accumulated value IS the proof that some subarray achieves it. Explicit boundaries are almost never needed in subarray DP problems.
+
+### Prefix/Suffix Method
+
+Your original intuition independently discovered a known approach:
+
+```
+Total product positive → whole array is the answer ✓
+Zero → splits array into independent subproblems ✓
+Total product negative → must remove either leftmost or rightmost negative
+```
+
+The prefix scan covers all subarrays touching the left end. The suffix scan covers all subarrays touching the right end. Together they cover all optimal subarrays — proven by the boundary theorem below.
+
+```cpp
+int prefix = 1, suffix = 1;
+for (int i = 0; i < n; ++i) {
+    prefix = (prefix == 0 ? 1 : prefix) * nums[i];
+    suffix = (suffix == 0 ? 1 : suffix) * nums[n-1-i];
+    result = max({result, prefix, suffix});
+}
+```
+
+### Boundary Theorem — Why Middle Subarrays Are Never Optimal
+
+**Claim:** In a non-zero integer array, the optimal subarray always touches at least one end.
+
+**Proof:** Suppose optimal subarray `nums[i..j]` is a pure middle subarray (i>0, j<n-1) with product P>0. Let L = product of `nums[0..i-1]`, R = product of `nums[j+1..n-1]`.
+
+- If `L×R > 0`: entire array product `L×P×R > P`. Contradiction.
+- If `L×R < 0`: exactly one of L, R is negative.
+  - If `L<0`: `R>0`, so `nums[i..n-1]` has product `P×R > P` and touches the right end. Contradiction.
+  - If `R<0`: `L>0`, so `nums[0..j]` has product `L×P > P` and touches the left end. Contradiction.
+
+In all cases a boundary-touching subarray beats the middle. QED.
+
+Zero breaks this proof because `L×R=0` escapes both sign cases — hence zeros require resetting the scan, splitting the array into independent non-zero segments.
+
+### Diagnostic Questions for Subarray Problems
+
+```
+1. Additive operation?       → Single Kadane's (track max only)
+2. Multiplicative operation? → Dual tracking (max and min)
+3. Overlapping subproblems?  → Memoization or DP table
+4. Sortable structure?       → Two-pointer
+```
+
+### Key Takeaways
+
+- Tracking only max loses the "large negative in reserve" information — multiplicative problems require tracking both max and min.
+- Temporary variables are essential when two values depend on each other's previous state — same discipline as #371 bit manipulation.
+- `max_prod` implicitly encodes the optimal subarray's starting position — explicit boundaries are almost never needed in subarray DP.
+- The optimal subarray in a non-zero array always touches at least one end — this is provable via sign analysis, not just empirical observation.
+- Zeros break the boundary theorem — reset the scan at zeros, treating each non-zero segment independently.
+
+---
+
+## #33 — Search in Rotated Sorted Array: Binary Search
+
+### Design Rationale — Pre-checked Boundary Equality
+
+```cpp
+if (nums[mid] == target) return mid;
+if (nums[left] == target) return left;   // rule out boundary equality upfront
+if (nums[right] == target) return right;
+// all subsequent comparisons can be strictly < and >
+```
+
+This is a deliberate tradeoff — three explicit boundary checks at the top in exchange for strictly clean `<` and `>` comparisons in the logic below. After ruling out `nums[mid]`, `nums[left]`, `nums[right]` equalling target, the branch conditions are provably strict. The design is internally consistent.
+
+### Standard Approach — One Branch Condition with `<=`
+
+```cpp
+while (left <= right) {
+    int mid = left + (right - left) / 2;
+    if (nums[mid] == target) return mid;
+
+    if (nums[left] <= nums[mid]) {         // left half is sorted
+        if (target >= nums[left] && target < nums[mid])
+            right = mid - 1;
+        else
+            left = mid + 1;
+    } else {                               // right half is sorted
+        if (target > nums[mid] && target <= nums[right])
+            left = mid + 1;
+        else
+            right = mid - 1;
+    }
+}
+```
+
+`nums[left] <= nums[mid]` uses `<=` to handle the two-element case `[3,1]` where `left==mid` — without it, the two-element case misclassifies which half is sorted.
+
+### Core Invariant
+
+After finding mid, exactly one of the two halves is always sorted. Identify which half is sorted, then decide which half the target falls into. Two decisions, two branches — clean separation of concerns.
+
+### Key Takeaways
+
+- Pre-checking boundary equality trades three extra comparisons for strict inequality in all subsequent logic — a valid deliberate design.
+- `left <= right` in the while condition is necessary — without `=`, a single-element array where `left==mid==right` would exit without checking.
+- `nums[left] <= nums[mid]` requires `<=` — the two-element case where `left==mid` must be classified as "sorted left half."
+- One half is always sorted after finding mid — this is the invariant that makes O(log N) binary search possible on a rotated array.
+
+---
+
+## #417 — Pacific Atlantic Water Flow: BFS/DFS + constexpr
+
+### Progression
+
+| Version | Issue | Fix |
+|---|---|---|
+| Two-corner seeding | Corners `{0,col-1}` and `{row-1,0}` missed most valid cells | Seed entire boundary |
+| Off-by-one boundary loops | `j < col-1` missed `j=col-1` corner | `j < col` |
+| unordered_set + PairHash | O(1) amortised, pointer chasing, custom hash required | `vector<vector<bool>>` |
+| Neighbors vector inside loop | O(M×N) heap allocations | `static constexpr` at class scope |
+| Mark at pop (BFS) | Same cell pushed multiple times | Mark at push |
+
+### Final Solution Structure
+
+```
+Seed Pacific:  entire top row (i=0) + entire left column (j=0)
+Seed Atlantic: entire bottom row (i=row-1) + entire right column (j=col-1)
+Traverse:      uphill BFS/DFS from each boundary
+Result:        cells reachable by both traversals
+```
+
+### Reverse Flow Insight
+
+Water flows downhill. To find which cells can reach the ocean, seed from the ocean boundary and expand **uphill** (`heights[nr][nc] >= heights[r][c]`). A cell reachable from the boundary in this uphill traversal can flow downhill back to the ocean. "Reachable from boundary" and "can reach ocean" are the same thing — this is why `pacific_ocean[i][j] = true` is semantically more honest than `visited[i][j] = true`.
+
+### BFS vs DFS for This Problem
+
+All three implementations produce identical results — traversal order does not affect which cells get marked reachable:
+
+| | Recursive DFS | Iterative DFS (stack) | BFS (queue) |
+|---|---|---|---|
+| Stack overflow risk | Yes — 90K frames on 300×300 | No | No |
+| Mark timing | At entry — naturally safe | At push | At push |
+| Order | Depth-first | Depth-first | Level-by-level |
+| Result | Identical | Identical | Identical |
+
+### Mark at Push — Universal Rule
+
+```
+Mark at push/recurse → each cell enters container exactly once  ✓
+Mark at pop          → cell can be pushed multiple times before processing ✗
+```
+
+Recursive DFS is naturally safe — `reachable[i][j] = true` as the first line marks before any recursion. Iterative stack and queue both require conscious discipline to mark at push.
+
+### `static constexpr` Deep Dive
+
+```cpp
+class Solution {
+    static constexpr int neighbors[4][2]{{1,0},{-1,0},{0,1},{0,-1}};
+    // ...
+};
+```
+
+| | `static int` | `static constexpr int` |
+|---|---|---|
+| Initialization | Runtime — first call | Compile time — baked into binary |
+| Location | `.data` segment (writable) | `.rodata` segment (read-only) |
+| Mutability | Mutable — no protection | Immutable — compiler + hardware |
+| Hidden guard check | Yes — thread-safe init check every call | No — zero runtime overhead |
+| Intent | Persists | Persists + immutable + compile-time |
+
+`.rodata` is memory-mapped with write-protection at the hardware level — any modification causes a segfault, not just a compile error. Two layers of protection: compiler and OS.
+
+**Scope vs lifetime — independent concepts:**
+```
+static   → controls lifetime  (persists for program duration)
+scope    → controls visibility (where the name is accessible)
+
+Function scope: long lifetime, visible only in that function
+Class scope:    long lifetime, visible to all member functions ← correct for neighbors
+```
+
+`static constexpr` at function scope technically valid in C++17 for arrays, but class scope is universally supported and semantically correct — the direction table belongs to the class, not to any one function.
+
+**General rule:**
+```
+Known at compile time + never changes → constexpr
+Known at compile time + might change  → const
+Not known at compile time             → static (with const if immutable)
+```
+
+### Key Takeaways
+
+- Seed the entire boundary, not corners — the two-corner approach catches only a small subset of valid cells.
+- `pacific_ocean` and `atlantic_ocean` are semantically more honest names than `visited` — they express reachability, not just traversal state.
+- `vector<vector<bool>>` over `unordered_set<pair>`: O(1) direct index vs O(1) amortised hash, cache-friendly, no custom hash needed.
+- `static constexpr` embeds values in `.rodata` at compile time — zero runtime initialization cost, hardware-enforced immutability.
+- Mark at push is the universal BFS/DFS discipline — prevents the same cell from entering the container multiple times.
+- Iterative DFS with explicit stack is production-safe; recursive DFS risks stack overflow at 90K frames on a 300×300 grid.
+
+---
+
+## #295 — Find Median from Data Stream: Two Heaps
+
+### Progression
+
+| Version | `addNum` | `findMedian` | Notes |
+|---|---|---|---|
+| Sorted list + iterator tracking | O(N) | O(1) | Correct but complex iterator logic |
+| Two heaps | O(log N) | O(1) | Canonical solution |
+
+### Two-Heap Invariant
+
+```
+lo (max-heap): lower half, size >= hi size
+hi (min-heap): upper half
+
+Always: every element in lo <= every element in hi
+Median: lo.top()                          if sizes differ (odd count)
+        (lo.top() + hi.top()) / 2.0       if sizes equal (even count)
+```
+
+### Final Solution
+
+```cpp
+class MedianFinder {
+public:
+    void addNum(int num) {
+        lo.push(num);                      // always push to max-heap first
+        hi.push(lo.top()); lo.pop();       // move max of lo to hi — maintains ordering
+
+        if (lo.size() < hi.size()) {       // keep lo >= hi in size
+            lo.push(hi.top()); hi.pop();
+        }
+    }
+
+    double findMedian() {
+        return lo.size() > hi.size()
+            ? lo.top()
+            : (lo.top() + hi.top()) / 2.0;
+    }
+
+private:
+    priority_queue<int> lo;                             // max-heap — lower half
+    priority_queue<int, vector<int>, greater<int>> hi;  // min-heap — upper half
+};
+```
+
+### Why the Cross-Push Pattern Works
+
+Step 1 — `lo.push(num)` then `hi.push(lo.top()); lo.pop()`:
+- Guarantees `hi.top() >= lo.top()` — ordering invariant maintained
+- Even if `num` is very small, it enters `lo`, and `lo`'s max moves to `hi`
+
+Step 2 — `if (lo.size() < hi.size()) lo.push(hi.top()); hi.pop()`:
+- Rebalances size — ensures `lo` is always >= `hi` in size
+- Median is always accessible at `lo.top()` for odd counts
+
+### Comparison
+
+| | Sorted list | Two heaps |
+|---|---|---|
+| `addNum` | O(N) — linear scan + insert | O(log N) |
+| `findMedian` | O(1) | O(1) |
+| Iterator management | 5 cases — complex | None |
+| Correctness verification | Hard | Easy — two invariants |
+
+### Key Takeaways
+
+- Two heaps split the problem into "lower half" and "upper half" — median is always at the boundary between them.
+- The cross-push pattern (`lo→hi, rebalance lo`) maintains both invariants simultaneously: ordering and size balance.
+- `priority_queue<int>` is max-heap by default. Min-heap requires `priority_queue<int, vector<int>, greater<int>>`.
+- O(log N) per insertion is the correct complexity for this problem — any O(N) approach (sorted list, linear scan) will TLE on large streams.
+
+---
+
+## Concepts: Static, Constexpr, and Binary Layout
+
+### Binary Section Summary
+
+```
+.text   — executable instructions
+.rodata — read-only data (constexpr, string literals)
+.data   — initialized mutable globals and statics
+.bss    — zero-initialized mutable globals and statics
+```
+
+`constexpr` values live in `.rodata` — write-protected at OS level. Modification causes hardware segfault. `static` non-const values live in `.data` — writable, runtime initialized with a hidden thread-safe guard check on every call in C++11+.
+
+### Static Local Variable Guard — Hidden Cost
+
+```cpp
+static int x = compute();  // C++11: compiler emits mutex-like guard
+                            // checked on every call even after init
+static constexpr int x = 42; // no guard — value known at compile time
+                              // zero runtime overhead
+```
+
+In hot-path trading code executing millions of times per second, eliminating the guard check via `constexpr` is standard discipline.
+
+---
+
+*Logged from Claude study session · April 6, 2026*
