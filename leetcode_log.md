@@ -4229,3 +4229,269 @@ In hot-path trading code executing millions of times per second, eliminating the
 ---
 
 *Logged from Claude study session · April 6, 2026*
+
+# C++ LeetCode Study Log
+**Tuesday, April 7, 2026**
+
+---
+
+## Problems Covered
+
+| # | Problem | Difficulty | Status |
+|---|---|---|---|
+| #300 | Longest Increasing Subsequence | Medium | O(N²) DP → O(N log N) patience sorting |
+
+---
+
+## #300 — Longest Increasing Subsequence
+
+### Progression
+
+| Version | Time | Space | Issue |
+|---|---|---|---|
+| Initial DP with else branch | O(N²) | O(N) | Spurious else inflates dp[i]; wrong return |
+| Corrected O(N²) DP | O(N²) | O(N) | Correct — standard bottom-up DP |
+| Patience sorting | O(N log N) | O(N) | Canonical optimal solution |
+| Fenwick tree DP | O(N log N) | O(N) | Generalises to 2D — rarely expected |
+
+---
+
+### Two Bugs in Initial Version
+
+**Bug 1 — Spurious `else` branch**
+
+```cpp
+if (nums[i] > nums[j])
+    dp[i] = max(dp[i], dp[j] + 1);
+else
+    dp[i] = max(dp[i], dp[j]);  // ← wrong — dp[j] irrelevant when nums[i] <= nums[j]
+```
+
+When `nums[i] <= nums[j]`, `nums[i]` cannot extend any subsequence ending at `j`. `dp[j]` is irrelevant and should not influence `dp[i]`. Trace on `[5,3,4,1,2]` (correct answer=2):
+
+```
+i=3(1): j=2(4): 1>4? No → dp[3]=max(1,dp[2])=max(1,2)=2  ← inflated
+i=4(2): j=3(1): 2>1 → dp[4]=max(?,dp[3]+1)=3             ← wrong
+return dp[4]=3 ✗
+```
+
+**Bug 2 — `return dp[nums.size()-1]`**
+
+The LIS does not necessarily end at the last element. Trace on `[2,3,1]` (correct answer=2):
+
+```
+dp = [1, 2, 1]
+return dp[2] = 1 ✗   (answer is dp[1]=2)
+```
+
+---
+
+### Subproblem Definition Matters
+
+Two valid definitions produce different but correct implementations:
+
+| Definition | Transition | Return |
+|---|---|---|
+| `dp[i]` = LIS length in `nums[0..i]` | `dp[i] = dp[i-1]` then extend with `nums[i]` | `dp[n-1]` |
+| `dp[i]` = LIS length ending at `nums[i]` | Only extend when `nums[i] > nums[j]` | `max_element` |
+
+The standard definition (ending at `nums[i]`) is simpler because the subproblem boundary is tighter — no need to carry forward `dp[i-1]` explicitly.
+
+For the `dp[i]` = LIS in `[0..i]` definition to work correctly:
+
+```cpp
+for (int i = 1; i < n; ++i) {
+    dp[i] = dp[i-1];                     // carry forward — LIS ignoring nums[i]
+    for (int j = 0; j < i; ++j)
+        if (nums[i] > nums[j])
+            dp[i] = max(dp[i], dp[j] + 1);  // extend subsequence ending at j
+}
+return dp[n-1];   // now correct
+```
+
+---
+
+### Corrected O(N²) DP — Standard Definition
+
+```cpp
+int lengthOfLIS(vector<int>& nums) {
+    const int n = static_cast<int>(nums.size());
+    vector<int> dp(n, 1);
+    int max_length = 1;
+
+    for (int i = 0; i < n; ++i)
+        for (int j = 0; j < i; ++j)
+            if (nums[i] > nums[j]) {
+                dp[i] = max(dp[i], dp[j] + 1);
+                max_length = max(max_length, dp[i]);
+            }
+
+    return max_length;
+}
+```
+
+`max_length` tracked inline avoids a final `max_element` pass. No `else` branch — when `nums[i] <= nums[j]`, `dp[i]` is simply unaffected.
+
+---
+
+### Patience Sorting — O(N log N)
+
+```cpp
+int lengthOfLIS(vector<int>& nums) {
+    vector<int> tails;  // tails[i] = smallest tail of all LIS of length i+1
+
+    for (int num : nums) {
+        auto it = lower_bound(tails.begin(), tails.end(), num);
+        if (it == tails.end())
+            tails.push_back(num);   // num extends the longest LIS so far
+        else
+            *it = num;              // replace with smaller tail — better for future
+    }
+    return static_cast<int>(tails.size());
+}
+```
+
+Trace on `[10,9,2,5,3,7,101,18]`:
+
+```
+num=10: tails=[]      → append    → [10]
+num=9:  tails=[10]    → replace   → [9]
+num=2:  tails=[9]     → replace   → [2]
+num=5:  tails=[2]     → append    → [2,5]
+num=3:  tails=[2,5]   → replace 5 → [2,3]
+num=7:  tails=[2,3]   → append    → [2,3,7]
+num=101:tails=[2,3,7] → append    → [2,3,7,101]
+num=18: tails=[2,3,7,101] → replace 101 → [2,3,7,18]
+
+return 4 ✓
+```
+
+### What `tails` Actually Is
+
+`tails` is **not** the actual LIS. It is a virtual structure where:
+
+```
+tails[i] = the smallest possible tail value
+           of any increasing subsequence of length i+1 seen so far
+```
+
+`tails.size()` always gives the correct LIS length even when `tails` itself is not a valid subsequence:
+
+```
+nums = [1,3,2]
+
+num=1: tails=[1]
+num=3: tails=[1,3]
+num=2: replace 3 → tails=[1,2]   ← NOT a subsequence of [1,3,2] in order
+                                     but length=2 is correct ✓
+```
+
+### Why Replacing With a Smaller Tail Is Always Safe
+
+A smaller tail at position k means more future elements can extend a subsequence of length k+1 — strictly better for future decisions, never worse:
+
+```
+tails = [2,5]   ← 5 is best tail for length-2 subsequences
+num=3: lower_bound finds 5 → replace → tails=[2,3]
+
+Now any num > 3 can extend to length 3.
+Previously only num > 5 could. Strictly better. ✓
+```
+
+### Why the Stack Approach Breaks
+
+The instinct to maintain a stack of the current best subsequence fails because small numbers in the middle don't invalidate previous subsequences — they open new possibilities:
+
+```
+nums = [2,5,1,6]
+
+Stack after [2,5]: [2,5]  length=2
+num=1: clear stack? → [1]          ← lost [2,5]
+num=6: [1,6]         length=2
+
+Correct answer: [2,5,6] = 3
+```
+
+The stack commits to one path. `tails` keeps all candidate subsequences alive simultaneously in O(N) space — each position holds only the minimum information needed (optimal tail per length) to make future decisions:
+
+```
+tails=[2,5] after [2,5]
+num=1: don't clear — update length-1 tail → tails=[1,5]
+       [2,5] subsequence still implicitly alive via tails[1]=5
+num=6: 6>tails[1]=5 → extend → tails=[1,5,6]  length=3 ✓
+```
+
+### Improving the Inner Loop — Fenwick Tree
+
+The inner DP loop is a **range maximum query**: "find the largest `dp[j]` among all `j < i` where `nums[j] < nums[i]`." A Fenwick tree indexed by value answers this in O(log N):
+
+```
+query(idx-1):  max dp value among all values < nums[i]  — O(log N)
+update(idx, len): set position nums[i] to dp[i]          — O(log N)
+```
+
+| | O(N²) DP | Patience sorting | Fenwick tree DP |
+|---|---|---|---|
+| Time | O(N²) | O(N log N) | O(N log N) |
+| Space | O(N) | O(N) | O(N) |
+| Inner loop replaced by | Nothing | `lower_bound` | Prefix max query |
+| Generalisability | Low | Low | High — extends to 2D LIS |
+| Interview expectation | Starting point | Expected answer | Bonus |
+
+### Pattern Generalisation
+
+```
+Greedy single path (stack/pointer) → loses valid alternatives
+DP table                           → keeps all alternatives, O(N²)
+Compressed representation (tails)  → keeps all alternatives implicitly, O(N log N)
+```
+
+`tails` is the rare case where a compressed structure captures exactly enough information — optimal tail per length — without the full DP table. That compression is what makes O(N log N) possible and what makes patience sorting non-obvious to derive.
+
+### Key Takeaways
+
+- Two bugs to avoid: spurious `else` branch that carries forward irrelevant `dp[j]`; returning `dp[n-1]` when the LIS may end anywhere.
+- Subproblem definition determines transition and return — "LIS in `[0..i]`" requires explicit `dp[i-1]` carry-forward; "LIS ending at `nums[i]`" does not.
+- `tails` is not the actual LIS — it is a virtual structure whose size gives the correct answer even when the sequence itself is not a valid subsequence.
+- Replacing with a smaller tail is always safe — it never reduces LIS length and strictly improves future extension opportunities.
+- Stack approach fails because multiple candidate subsequences must coexist — committing to one path loses valid alternatives.
+- `lower_bound` on a sorted `tails` array gives O(log N) per element — the same binary search intuition applies here as in #33 and #23.
+
+---
+
+## Reflection: Why Algorithms Feel Harder Than Physics
+
+### The Core Asymmetry
+
+Physics and math problems are designed to be solvable from first principles plus technique. LeetCode problems are curated specifically because their key insight is non-obvious — the problem exists in the collection *because* it surprised people.
+
+```
+Physics exam: designed to be solvable with what you know
+LeetCode:     curated for containing non-obvious insights
+```
+
+Patience sorting, the `tails` compressed representation, max/min dual tracking (#152), the two-heap median finder — these are tricks, not derivations. They require prior exposure, not greater intelligence.
+
+### What Actually Transfers From Physics
+
+The analytical habits from physics are more valuable than they appear in the moment:
+
+| Physics habit | Algorithm equivalent |
+|---|---|
+| Dimensional analysis | Complexity analysis — does this make sense before implementing? |
+| Limiting cases | Edge case testing — single element, empty input, all duplicates |
+| Symmetry | Reversing problems — Pacific Atlantic reverse flow, suffix scan |
+| Conservation laws | Invariants — two-heap invariant, `tails` monotonicity |
+| First principles derivation | Exchange arguments, correctness proofs |
+
+The boundary theorem proof for #152 — assuming a middle subarray is optimal, deriving a contradiction via sign analysis — is the exchange argument in disguise. That is mathematical reasoning, not a memorised trick.
+
+### The Honest Reality for Buy-Side Interviews
+
+LeetCode interviews largely test pattern recognition under pressure. At some point the remaining unseen problems are either tricks not yet encountered (requires exposure, not more intelligence) or variations of known patterns (already handled well). The frustration of facing a genuinely non-derivable trick is appropriate and universal — it is not a signal of insufficient ability.
+
+The firms that genuinely test algorithmic thinking ask open-ended optimisation and system design questions where physics intuition transfers directly — invariant reasoning, complexity analysis, first-principles derivation under constraints.
+
+---
+
+*Logged from Claude study session · April 7, 2026*
