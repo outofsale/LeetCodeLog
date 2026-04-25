@@ -4495,3 +4495,361 @@ The firms that genuinely test algorithmic thinking ask open-ended optimisation a
 ---
 
 *Logged from Claude study session · April 7, 2026*
+
+# C++ LeetCode Study Log
+**Wednesday, April 8, 2026**
+
+---
+
+## Problems Covered
+
+| # | Problem | Difficulty | Status |
+|---|---|---|---|
+| #435 | Non-overlapping Intervals | Medium | Backtracking O(2^N) → greedy sort by end time O(N log N) |
+| #53 | Maximum Subarray | Medium | Kadane's — clean O(N) solution |
+| #54 | Spiral Matrix | Medium | Manual position tracking → four shrinking boundaries |
+| #57 | Insert Interval | Medium | Flag-based single loop → three-phase explicit separation |
+| #62 | Unique Paths | Medium | unordered_map DP → 2D array → 1D → combinatorial O(1) |
+
+---
+
+## #435 — Non-overlapping Intervals: Greedy Sort by End Time
+
+### Progression
+
+| Version | Time | Space | Notes |
+|---|---|---|---|
+| Backtracking | O(2^N) | O(N) stack | Correct — two branches per overlap |
+| Greedy sort by end time | O(N log N) | O(1) | Canonical solution |
+
+### Why Backtracking Produces Exponential Time
+
+When an overlap is found between `current` and `prev`, two choices exist — erase `current` or erase `prev`. Two branches at every overlap gives O(2^N) in the worst case (all intervals overlapping). Correct answer, wrong complexity.
+
+The backtracking choice is also safe — erasing `prev` cannot create a new overlap between `current` and whatever preceded `prev`, because intervals are sorted by start time:
+
+```
+If A.end ≤ B.start (A and B non-overlapping)
+and C.start ≥ B.start (sorted)
+then A.end ≤ C.start — erasing B never creates A-C overlap ✓
+```
+
+### The O(N log N) Greedy
+
+```cpp
+int eraseOverlapIntervals(vector<vector<int>>& intervals) {
+    sort(intervals.begin(), intervals.end(), [](const auto& a, const auto& b) {
+        return a[1] < b[1];   // sort by END time
+    });
+
+    int erased = 0;
+    int prev_end = intervals[0][1];
+
+    for (int i = 1; i < static_cast<int>(intervals.size()); ++i) {
+        if (intervals[i][0] < prev_end)
+            ++erased;              // overlap — erase current (later end time)
+        else
+            prev_end = intervals[i][1];  // no overlap — keep current
+    }
+    return erased;
+}
+```
+
+Trace on `[[1,2],[2,3],[3,4],[1,3]]`:
+```
+After sort by end: [[1,2],[2,3],[1,3],[3,4]]
+prev_end=2
+
+i=1 [2,3]: 2<2? No  → keep, prev_end=3
+i=2 [1,3]: 1<3? Yes → erase, erased=1
+i=3 [3,4]: 3<3? No  → keep, prev_end=4
+
+return 1 ✓
+```
+
+### Why Sort by End Time — Exchange Argument
+
+When the goal is to keep as many non-overlapping intervals as possible, the interval with the earliest end time vacates the timeline soonest and leaves the most room for future intervals. Formally: if an optimal solution keeps interval A (later end) over B (earlier end) when they overlap, swapping A for B produces an equally valid or better solution — B's earlier end can only allow more future intervals.
+
+### Sort Key Decision — General Rule for Interval Problems
+
+| Problem | Sort Key | Greedy Strategy |
+|---|---|---|
+| #56 Merge Intervals | Start time | Detect adjacency — scan left to right, merge when start ≤ prev end |
+| #435 Erase Overlaps | End time | Keep earliest-ending — erase later-ending on conflict |
+| #252 Meeting Rooms | Start time | Detect if any overlap exists |
+| #253 Meeting Rooms II | Start time | Match freed rooms greedily via min-heap of end times |
+| Activity Selection | End time | Same as #435 — maximise count kept |
+
+```
+"Do I care about when intervals END relative to each other?"
+→ Yes, selecting/keeping intervals   → sort by end time
+
+"Do I care about when intervals START relative to each other?"
+→ Yes, merging or counting           → sort by start time
+```
+
+A wrong sort key forces backtracking or lookahead — exactly what happened here. Exponential blowup in backtracking is often a signal that the sort key doesn't align with the greedy strategy.
+
+### Key Takeaways
+
+- Two branches per overlap → O(2^N): correct but exponential. Always check whether a greedy reduces two branches to one.
+- Sort by end time is the correct key when maximising kept intervals — earliest end time leaves the most room for future intervals.
+- Sort key encodes the greedy strategy — choosing the wrong key forces lookahead or backtracking.
+- Erasing `prev` in a start-time-sorted array never creates new overlaps — safe because sort order guarantees transitivity.
+
+---
+
+## #53 — Maximum Subarray: Kadane's Algorithm
+
+### Solution
+
+```cpp
+int maxSubArray(vector<int>& nums) {
+    int sum = 0, max_sum = nums[0];
+    for (int num : nums) {
+        if (sum + num > 0) { sum += num;  max_sum = max(max_sum, sum); }
+        else               { sum = 0;     max_sum = max(max_sum, num); }
+    }
+    return max_sum;
+}
+```
+
+### Comparison With Standard Kadane's
+
+```
+Standard:  current = max(nums[i], current + nums[i])
+           → keeps better of "start fresh" vs "extend" implicitly
+
+This version: if sum + num > 0 → extend
+              else             → reset sum=0, record num as candidate
+```
+
+Both make the same decision — discard accumulated sum when extending is worse than starting fresh. The explicit reset form makes the "start fresh" branch visible; the `max()` form is more compact. Both are O(N) time, O(1) space.
+
+### Key Takeaways
+
+- Kadane's core decision: extend current subarray vs start fresh at current element.
+- `max_sum` initialised to `nums[0]` handles all-negative arrays correctly — the best single element is the answer.
+- Range-based for loop sidesteps `size_t` vs signed integer comparison issues.
+- This problem was intentionally skipped in earlier sessions — now that #152 (max product subarray) provided the dual max/min extension context, #53 fits naturally as the additive baseline.
+
+---
+
+## #54 — Spiral Matrix: Four Shrinking Boundaries
+
+### Correctness of Initial Version
+
+The `size() == total` guard after every side is the critical correctness mechanism — without it, non-square matrices overshoot into already-visited cells. The `loop` variable implicitly tightens all four boundaries simultaneously. Logic is correct but position adjustments between sides are fragile:
+
+```cpp
+// after top row — manual reposition
+j = j - 1; i = i + 1;
+// after right column — manual reposition
+i = i - 1; j = j - 1;
+```
+
+One wrong sign anywhere silently produces incorrect output. The guard catches it, but the root cause is manual position tracking rather than explicit boundary management.
+
+### Standard Four-Boundary Solution
+
+```cpp
+vector<int> spiralOrder(vector<vector<int>>& matrix) {
+    int top = 0, bottom = static_cast<int>(matrix.size()) - 1;
+    int left = 0, right = static_cast<int>(matrix[0].size()) - 1;
+    vector<int> result;
+
+    while (top <= bottom && left <= right) {
+        for (int j = left;  j <= right;  ++j) result.push_back(matrix[top][j]);
+        ++top;
+        for (int i = top;   i <= bottom; ++i) result.push_back(matrix[i][right]);
+        --right;
+        if (top <= bottom) {
+            for (int j = right; j >= left;  --j) result.push_back(matrix[bottom][j]);
+            --bottom;
+        }
+        if (left <= right) {
+            for (int i = bottom; i >= top;  --i) result.push_back(matrix[i][left]);
+            ++left;
+        }
+    }
+    return result;
+}
+```
+
+### Comparison
+
+| | Initial version | Four boundaries |
+|---|---|---|
+| Correctness mechanism | `size()==total` guard | `top<=bottom && left<=right` |
+| Position tracking | Manual `i,j` adjustment between sides | Boundaries shrink naturally |
+| Non-square handling | Guard catches overshoots | Explicit `if (top<=bottom)` guards |
+| Equivalent to `loop` | Yes — implicit simultaneous tightening | Explicit named boundaries |
+
+### Key Takeaways
+
+- Four named boundaries make each side's valid range independently verifiable — no need to trace manual position adjustments.
+- `if (top <= bottom)` and `if (left <= right)` guards handle non-square matrices cleanly without a total-count sentinel.
+- O(M×N) time, O(1) auxiliary space.
+
+---
+
+## #57 — Insert Interval: Three-Phase Separation
+
+### Correctness of Initial Version
+
+The `inserted` flag correctly tracks two phases in a single loop — "find where to insert" and "continue merging after insertion." All cases handled:
+
+```
+interval[1] < newInterval[0]  → before new interval, push as-is
+interval[0] > newInterval[1]  → after new interval, push new then current
+else                           → overlap, merge into newInterval
+After inserted: merge with result.back() if overlapping
+!inserted at end               → newInterval goes last
+```
+
+### Standard Three-Phase Solution
+
+```cpp
+vector<vector<int>> insert(vector<vector<int>>& intervals, vector<int>& newInterval) {
+    vector<vector<int>> result;
+    int i = 0, n = static_cast<int>(intervals.size());
+
+    // Phase 1: all intervals strictly before newInterval
+    while (i < n && intervals[i][1] < newInterval[0])
+        result.push_back(intervals[i++]);
+
+    // Phase 2: merge all overlapping intervals into newInterval
+    while (i < n && intervals[i][0] <= newInterval[1]) {
+        newInterval[0] = min(newInterval[0], intervals[i][0]);
+        newInterval[1] = max(newInterval[1], intervals[i][1]);
+        ++i;
+    }
+    result.push_back(newInterval);
+
+    // Phase 3: all intervals strictly after newInterval
+    while (i < n) result.push_back(intervals[i++]);
+
+    return result;
+}
+```
+
+### Comparison
+
+| | Flag-based single loop | Three-phase |
+|---|---|---|
+| Phases | Mixed — flag tracks current phase | Explicitly separated |
+| `inserted` flag | Required | Not needed |
+| Merging mechanism | `result.back()` after insertion | Accumulate into `newInterval` directly |
+| Each loop's job | Mixed concerns | One clear purpose per loop |
+
+### Key Takeaways
+
+- Three-phase separation — before, overlap, after — is the idiomatic form. Each loop has one job.
+- Accumulating overlaps into `newInterval` directly is cleaner than modifying `result.back()`.
+- O(N) time, O(1) auxiliary space — each interval processed exactly once.
+
+---
+
+## #62 — Unique Paths: Dense Grid DP
+
+### Progression
+
+| Version | Time | Space | Notes |
+|---|---|---|---|
+| `unordered_map<pair<int,int>>` | O(M×N) + hash overhead | O(M×N) + hash | Wrong container for dense grid |
+| 2D array DP | O(M×N) | O(M×N) | Correct container |
+| 1D rolling array | O(M×N) | O(N) | Each row depends only on previous |
+| Combinatorial | O(min(M,N)) | O(1) | Mathematical closed form |
+
+### Container Choice — Dense vs Sparse
+
+```
+Dense grid — every (i,j) populated   → vector<vector<int>>  O(1) direct index
+Sparse state space — few states       → unordered_map        O(1) amortised hash
+```
+
+`unordered_map` carries hash computation, collision handling, and heap allocation for no benefit over a 2D array when every cell is populated. This is the rule: **dense grid → 2D array, sparse state space → hash map.**
+
+### PairHash Bit Shift Error
+
+```cpp
+// Wrong — shifts swapped
+seed ^= hash<int>()(p.second) + 0x9e3779b9 + (seed >> 6) + (seed << 2);
+
+// Correct — standard boost::hash_combine
+seed ^= hash<int>()(p.second) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+```
+
+`(seed << 6) + (seed >> 2)` is the correct mixing — left shift spreads bits upward, right shift folds high bits down. Swapping increases collision probability. Won't cause wrong answers but degrades hash distribution.
+
+### Border Initialisation Over Four-Branch Conditional
+
+```cpp
+// Four-branch version — verbose
+if (i>=2 && j>=2)      dp[{i,j}] = dp[{i-1,j}] + dp[{i,j-1}];
+else if (i>=2)         dp[{i,j}] = dp[{i-1,j}];
+else if (j>=2)         dp[{i,j}] = dp[{i,j-1}];
+else                   dp[{i,j}] = 1;
+
+// Border initialisation — one transition
+for (int i = 1; i <= m; ++i) dp[i][1] = 1;
+for (int j = 1; j <= n; ++j) dp[1][j] = 1;
+for (int i = 2; i <= m; ++i)
+    for (int j = 2; j <= n; ++j)
+        dp[i][j] = dp[i-1][j] + dp[i][j-1];
+```
+
+### 1D Space Optimisation
+
+Each row depends only on the previous row — only one row needed:
+
+```cpp
+int uniquePaths(int m, int n) {
+    vector<int> dp(n, 1);      // first row — all 1s
+    for (int i = 1; i < m; ++i)
+        for (int j = 1; j < n; ++j)
+            dp[j] += dp[j-1]; // dp[j]=above, dp[j-1]=left after update
+    return dp[n-1];
+}
+```
+
+### Combinatorial Closed Form
+
+Robot makes exactly `m-1` down moves and `n-1` right moves — total `m+n-2` moves, choose `m-1` to be down:
+
+```
+Answer = C(m+n-2, m-1)
+```
+
+```cpp
+int uniquePaths(int m, int n) {
+    long long result = 1;
+    for (int i = 0; i < min(m-1, n-1); ++i)
+        result = result * (m + n - 2 - i) / (i + 1);
+    return static_cast<int>(result);
+}
+```
+
+### Key Takeaways
+
+- Dense grid with every cell populated → `vector<vector<int>>`, not `unordered_map`. Hash overhead is pure cost with no benefit.
+- Border initialisation upfront collapses four conditional branches into one clean transition.
+- 1D rolling array reduces space from O(M×N) to O(N) when each row depends only on the previous.
+- Combinatorial insight: `m+n-2` total moves, choose `m-1` down → C(m+n-2, m-1) — O(min(M,N)) time, O(1) space.
+- PairHash standard form: `(seed << 6) + (seed >> 2)` — left shift dominates upward, right shift folds high bits down.
+
+---
+
+## Key Takeaways
+
+- **Sort key encodes greedy strategy** — for interval problems, "sort by start" for merge/detect, "sort by end" for selection/minimise erasure. Wrong sort key forces backtracking.
+- **Exponential backtracking is a signal** — two branches per decision with no memoisation means the problem has unexploited structure. Look for a greedy sort or DP formulation.
+- **Container choice for DP** — dense grid (every state populated) → 2D array. Sparse state space → hash map. Using hash map on a dense grid adds overhead with zero benefit.
+- **Phase separation over flag tracking** — when a loop has two phases, separate them into two loops. Each loop with one job is immediately verifiable; a flag-tracking single loop requires mental state tracking.
+- **Named boundaries over manual position tracking** — explicit `top`, `bottom`, `left`, `right` boundaries in spiral traversal make each side's valid range independently checkable without tracing positional arithmetic.
+- **Space optimisation progression** — O(M×N) → O(N) rolling array → O(1) combinatorial. Knowing all three levels demonstrates depth for buy-side interviews.
+
+---
+
+*Logged from Claude study session · April 8, 2026*
