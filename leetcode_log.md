@@ -4853,3 +4853,452 @@ int uniquePaths(int m, int n) {
 ---
 
 *Logged from Claude study session · April 8, 2026*
+
+# C++ LeetCode Study Log
+**Wednesday, April 9, 2026**
+
+---
+
+## Problems Covered
+
+| # | Problem | Difficulty | Status |
+|---|---|---|---|
+| #211 | Design Add and Search Words Data Structure | Medium | Trie with unique_ptr — production quality |
+| #213 | House Robber II | Medium | Circular split → two linear subproblems |
+| #207 | Course Schedule | Medium | Custom encoding → DFS three-color / Kahn's BFS |
+| #198 | House Robber | Medium | Backtracking → memoized DP |
+| #73 | Set Matrix Zeroes | Medium | O(M×N) visited → O(M+N) flat array → O(1) first row/col |
+| #79 | Word Search | Medium | Missing backtrack → in-place marking |
+| #91 | Decode Ways | Medium | Memoized backtracking |
+| #98 | Validate Binary Search Tree | Medium | Bounds propagation with int64_t |
+| Various | Custom problems | — | Interval/graph/string utilities |
+
+---
+
+## Vector Class Implementation
+
+### Rule of Five — Complete
+
+```cpp
+template<typename T>
+class Vector {
+public:
+    Vector() : _data(nullptr), _size(0), _capacity(0) {}
+    explicit Vector(size_t size) : _data(new T[size]()), _size(size), _capacity(size) {}
+    Vector(size_t size, const T& value) : _data(new T[size]), _size(size), _capacity(size)
+        { std::fill(_data, _data + _size, value); }
+
+    ~Vector() { delete[] _data; }  // delete[] nullptr is safe — no null check needed
+
+    Vector(const Vector& other) : _data(new T[other._capacity]),
+        _size(other._size), _capacity(other._capacity)
+        { std::copy(other._data, other._data + _size, _data); }
+
+    Vector& operator=(const Vector& other) {
+        if (this != &other) { Vector tmp(other); swap(tmp); }
+        return *this;
+    }
+
+    Vector(Vector&& other) noexcept
+        : _data(other._data), _size(other._size), _capacity(other._capacity)
+        { other._data = nullptr; other._size = other._capacity = 0; }
+
+    Vector& operator=(Vector&& other) noexcept {
+        if (this != &other) {
+            delete[] _data;
+            _data = other._data; _size = other._size; _capacity = other._capacity;
+            other._data = nullptr; other._size = other._capacity = 0;
+        }
+        return *this;
+    }
+```
+
+### `push_back` — Both Overloads
+
+```cpp
+    void push_back(const T& value) { emplace_back(value); }
+    void push_back(T&& value)      { emplace_back(std::move(value)); }
+```
+
+### `emplace_back` — Raw Memory + Placement New
+
+```cpp
+    template<typename... Args>
+    void emplace_back(Args&&... args) {
+        if (_size == _capacity) {
+            size_t new_cap = _size == 0 ? 2 : 2 * _size;
+            T* temp = static_cast<T*>(::operator new(new_cap * sizeof(T)));
+
+            for (size_t i = 0; i < _size; ++i) {
+                new (temp + i) T(std::move(_data[i]));  // move-construct
+                _data[i].~T();                           // destroy moved-from immediately
+            }
+            ::operator delete(_data);
+            _data = temp;
+            _capacity = new_cap;
+        }
+        new (_data + _size) T(std::forward<Args>(args)...);
+        ++_size;
+    }
+```
+
+### Key Concepts
+
+**`static constexpr` vs `static`:**
+```
+static           → persists, runtime init, mutable, hidden guard check every call
+static const     → persists, runtime init, immutable at runtime
+static constexpr → persists, compile-time, .rodata segment, hardware write-protected
+```
+
+**Named rvalue reference is lvalue inside function body:**
+```cpp
+void push_back(T&& value) {
+    _data[_size++] = value;             // copies — value has a name → lvalue
+    _data[_size++] = std::move(value);  // moves — explicit cast to rvalue
+}
+```
+`std::move` is purely a compile-time cast — does nothing at runtime. Without it, rvalue reference parameters are treated as lvalues inside the function body.
+
+**Move constructors should be `noexcept`:**
+- `std::vector` uses `move_if_noexcept` — without `noexcept`, falls back to copying during reallocation
+- Placement new move loop is exception-safe when move constructors are `noexcept`
+
+**Raw memory symmetry rule:**
+```
+new T[]          → delete[]           (constructs + destructs automatically)
+::operator new   → explicit ~T() loop
+                   + ::operator delete (manual construct + destruct)
+```
+
+**`::operator delete _data` is a syntax error** — `::operator delete` is a function, not a keyword like `delete`. Requires parentheses: `::operator delete(_data)`.
+
+---
+
+## #211 — Design Add and Search Words Data Structure
+
+### Final Solution
+
+```cpp
+class WordDictionary {
+    struct Node {
+        bool is_end = false;
+        unique_ptr<Node> children[26];
+        // fill not needed — unique_ptr default-constructs to nullptr
+    };
+    unique_ptr<Node> root;
+
+    bool search(const string& word, int start, Node* node) {
+        if (!node) return false;
+        if (start == static_cast<int>(word.size())) return node->is_end;
+        char c = word[start];
+        if (c == '.') {
+            for (auto& child : node->children)
+                if (search(word, start+1, child.get())) return true;
+            return false;
+        }
+        return search(word, start+1, node->children[c-'a'].get());
+    }
+public:
+    WordDictionary() : root(make_unique<Node>()) {}
+    void addWord(const string& word) {
+        Node* curr = root.get();
+        for (char c : word) {
+            if (!curr->children[c-'a']) curr->children[c-'a'] = make_unique<Node>();
+            curr = curr->children[c-'a'].get();
+        }
+        curr->is_end = true;
+    }
+    bool search(const string& word) { return search(word, 0, root.get()); }
+};
+```
+
+### Key Takeaways
+
+- `unique_ptr<Node> children[26]` default-constructs to nullptr — `fill` is redundant.
+- `is_end` on root: default false → empty string must be explicitly added. Set to true if empty string should always exist.
+- Dot in search tries all 26 children — O(26^L) worst case for all-dot pattern.
+- `unique_ptr` cascade destruction handles entire trie cleanup automatically.
+
+---
+
+## #213 — House Robber II: Circular Split
+
+### Progression
+
+| Version | Time | Space | Issue |
+|---|---|---|---|
+| Recursive no memo | O(2^N) | O(N) stack | Exponential |
+| Two separate memos | O(N) | O(N) maps | Correct |
+| Bottom-up O(1) | O(N) | O(1) | Canonical |
+
+### Why Two Separate Memos
+
+```
+memo1[start] = best rob of nums[start..n-2]   (first house included)
+memo2[start] = best rob of nums[start..n-1]   (first house excluded)
+```
+
+Same `start` index represents a **different subproblem** because `end` differs. A single shared memo keyed only on `start` would return wrong cached values.
+
+### Bottom-Up O(1)
+
+```cpp
+int rob(vector<int>& nums) {
+    const int n = static_cast<int>(nums.size());
+    if (n == 1) return nums[0];
+    if (n == 2) return max(nums[0], nums[1]);
+
+    auto robLinear = [&](int left, int right) {
+        int prev2 = 0, prev1 = 0;
+        for (int i = left; i <= right; ++i) {
+            int curr = max(prev1, nums[i] + prev2);
+            prev2 = prev1; prev1 = curr;
+        }
+        return prev1;
+    };
+    return max(robLinear(0, n-2), robLinear(1, n-1));
+}
+```
+
+### Key Takeaways
+
+- Circular constraint → split into two linear subproblems: include first house (exclude last) vs exclude first house (include last).
+- `n=1` edge case: `static_cast<int>(nums.size()) - 2 = -1` as int — loop never executes, safe but worth guarding explicitly.
+
+---
+
+## #207 — Course Schedule: Cycle Detection
+
+### Custom Encoding Approach — Fundamentally Flawed
+
+Attempted to encode multiple dependencies as base-numCourses integer. Fails when course 0 is a dependency (`num % numCourses = 0` indistinguishable from termination) and has no cycle detection.
+
+### DFS Three-Color (Canonical)
+
+```cpp
+bool canFinish(int numCourses, vector<vector<int>>& prerequisites) {
+    vector<vector<int>> adj(numCourses);
+    for (auto& p : prerequisites) adj[p[1]].push_back(p[0]);
+
+    vector<int> state(numCourses, 0);
+    function<bool(int)> hasCycle = [&](int node) -> bool {
+        if (state[node] == 1) return true;    // back edge — cycle
+        if (state[node] == 2) return false;   // already verified
+        state[node] = 1;
+        for (int next : adj[node]) if (hasCycle(next)) return true;
+        state[node] = 2;
+        return false;
+    };
+    for (int i = 0; i < numCourses; ++i) if (hasCycle(i)) return false;
+    return true;
+}
+```
+
+### Kahn's BFS / Stack
+
+```cpp
+bool canFinish(int numCourses, vector<vector<int>>& prerequisites) {
+    vector<vector<int>> adj(numCourses);
+    vector<int> indegree(numCourses, 0);
+    for (auto& p : prerequisites) { adj[p[1]].push_back(p[0]); ++indegree[p[0]]; }
+
+    queue<int> q;  // swap for stack<int> for DFS variant
+    for (int i = 0; i < numCourses; ++i) if (indegree[i] == 0) q.push(i);
+
+    int completed = 0;
+    while (!q.empty()) {
+        int node = q.front(); q.pop(); ++completed;
+        for (int next : adj[node]) if (--indegree[next] == 0) q.push(next);
+    }
+    return completed == numCourses;
+}
+```
+
+Queue → BFS (level-by-level). Stack → DFS variant (LIFO). Both produce valid topological order. Cycle detection: nodes in a cycle never reach indegree 0 → `completed < numCourses`.
+
+### Key Takeaways
+
+- Three-color DFS: 0=unvisited, 1=visiting (in current path), 2=fully verified. Back edge to state=1 means cycle.
+- Kahn's: process zero-indegree nodes. If cycle exists, those nodes never reach zero. `completed == numCourses` iff no cycle.
+- Queue vs stack in Kahn's: both correct for cycle detection, produce different orderings.
+
+---
+
+## #73 — Set Matrix Zeroes: Space Optimisation
+
+### Progression
+
+| Version | Space | Mechanism |
+|---|---|---|
+| Visited matrix | O(M×N) | Separate tracking array |
+| Flat target array | O(M+N) | `target[i]` for rows, `target[m+j]` for cols |
+| First row/col markers | O(1) | Two booleans for first row/col |
+
+### O(1) Solution — Four Phases (Critical Order)
+
+```
+Phase 1: Record first_row_zero, first_col_zero
+Phase 2: Mark first row/col using interior zeros [i≥1, j≥1]
+Phase 3: Zero interior using markers
+Phase 4: Apply first_row_zero and first_col_zero
+```
+
+Phase 4 must come last — applying first row/col zeroing earlier contaminates the markers used in phase 3. `matrix[0][0]` serves as row-0 marker only; column 0 tracked by `first_col_zero` boolean to resolve the `[0][0]` ambiguity.
+
+---
+
+## #79 — Word Search: DFS Backtracking
+
+### Two Critical Bugs Fixed
+
+```
+++index inside neighbor loop    → corrupts index for subsequent neighbors
+visited[nr][nc] never reset     → permanently blocks cells after failed path
+```
+
+### Clean Solution — In-Place Marking
+
+```cpp
+bool dfs(vector<vector<char>>& board, const string& word,
+         int m, int n, int i, int j, int index) {
+    if (index == word.size()) return true;
+    if (i<0||i>=m||j<0||j>=n||board[i][j]!=word[index]) return false;
+
+    char tmp = board[i][j];
+    board[i][j] = '#';   // mark in-place — no visited array needed
+    for (auto& d : dirs)
+        if (dfs(board, word, m, n, i+d[0], j+d[1], index+1)) {
+            board[i][j] = tmp; return true;
+        }
+    board[i][j] = tmp;   // restore on failure
+    return false;
+}
+```
+
+In-place `'#'` marker eliminates O(M×N) visited array. `static constexpr int dirs[4][2]` at class scope — compile-time, `.rodata`, no runtime init.
+
+---
+
+## #91 — Decode Ways: Memoized Backtracking
+
+### Key Optimisations
+
+```cpp
+// substring + stoi — heap allocation per two-digit check
+stoi(s.substr(start, 2)) < 27
+
+// direct character comparison — O(1), no allocation
+s[start] == '2' && s[start+1] <= '6'
+```
+
+Two-digit validity: `s[start]=='1'` accepts any next digit. `s[start]=='2'` accepts next digit `<='6'` (gives 20-26). Both cases call `backtrack(start+2)` — unified into one condition.
+
+### Key Takeaways
+
+- `vector<int>` over `unordered_map` for dense integer keys — same pattern as #198.
+- `stoi(s.substr(...))` allocates and parses — replace with direct character comparison.
+- Base case (`start == size`) before memo check — terminal state never in cache.
+
+---
+
+## #98 — Validate Binary Search Tree
+
+### Why `int64_t` Is Essential
+
+```cpp
+bool isValidBST(TreeNode* root, int64_t lower, int64_t upper)
+```
+
+Node values can be `INT_MIN` or `INT_MAX`. Using `int` bounds would cause `root->val <= lower_limit` to fire incorrectly when `root->val == INT_MIN == lower_limit`. `int64_t` sentinels sit strictly outside the range of any `int` node value.
+
+### Two Standard Approaches
+
+| | Bounds propagation | Inorder traversal |
+|---|---|---|
+| Time | O(N) | O(N) |
+| Space | O(H) | O(H) |
+| Intuition | "Each node has a valid range" | "BST inorder is sorted" |
+| State | Two bounds propagated down | One prev value via reference |
+
+Neither is better — both are canonical O(N) solutions. Bounds propagation more directly expresses the BST definition. No sub-O(N) solution exists — every node must be inspected.
+
+---
+
+## Custom Problem Implementations
+
+### Alphabetic Palindrome Check
+
+```cpp
+bool isAlphabeticPalindrome(const string& code) {
+    int left = 0, right = static_cast<int>(code.size()) - 1;
+    while (left <= right) {
+        while (left <= right && !isalpha(static_cast<unsigned char>(code[left])))  ++left;
+        while (left <= right && !isalpha(static_cast<unsigned char>(code[right]))) --right;
+        if (left >= right) break;  // NECESSARY — pointers may cross during inner skip loops
+        if (tolower((unsigned char)code[left]) != tolower((unsigned char)code[right])) return false;
+        ++left; --right;
+    }
+    return true;
+}
+```
+
+`if (left >= right) break` is essential — outer while checks bounds before skip loops run, not inside them. Test: `"abc123cba"` — pointers cross at center digits without the guard. `isalpha`/`tolower` require `unsigned char` cast — passing negative signed char is UB.
+
+### Non-Trivial String Rotation
+
+```cpp
+bool isNonTrivialRotation(const string& s1, const string& s2) {
+    if (s1.empty() || s1.size() != s2.size() || s1 == s2) return false;
+    return (s1 + s1).find(s2) != string::npos;
+}
+```
+
+s2 is a rotation of s1 iff s2 is a substring of s1+s1. O(N) via std::string::find. Manual index approach requires bounds check on inner while or UB when s1[0] not found in s2.
+
+### Inversion Count — O(N log N)
+
+Counting insertion sort shifts = counting inversions. Merge sort counts inversions in O(N log N) by counting cross-half inversions during merge:
+
+```
+When right element placed before remaining left elements:
+  count += mid - i   (all remaining left elements invert with this right element)
+```
+
+Same divide-and-conquer that makes merge sort faster at sorting also makes it faster at counting — each merge step counts entire groups of inversions simultaneously.
+
+### Maximum Non-Overlapping Intervals
+
+```cpp
+int maximizeNonOverlappingMeetings(const vector<vector<int>>& meetings) {
+    vector<vector<int>> sorted = meetings;
+    sort(sorted.begin(), sorted.end(),
+         [](const auto& a, const auto& b){ return a[1] < b[1]; });  // sort by END time
+
+    int count = 0, end = INT_MIN;
+    for (auto& m : sorted)
+        if (m[0] >= end) { ++count; end = m[1]; }
+    return count;
+}
+```
+
+Same problem as #435 — sort by end time, greedily keep earliest-ending. `end = INT_MIN` replaces `count == 0` special case cleanly.
+
+---
+
+## Key Takeaways
+
+- **Move semantics discipline**: named `T&&` parameter is lvalue inside function body — always `std::move()` explicitly. `std::move` is a compile-time cast only.
+- **Raw memory contract**: `::operator new` + placement new requires explicit `~T()` + `::operator delete`. Never mix with `new T[]` / `delete[]`.
+- **`static constexpr`**: compile-time init, `.rodata` segment, hardware write-protected, zero runtime overhead vs `static` which has hidden thread-safe guard check every call.
+- **Pointer crossing in two-pointer skip loops**: outer while condition checked before inner skip loops run — explicit `if (left >= right) break` after both inner loops is mandatory.
+- **`isalpha`/`tolower` require `unsigned char` cast** — passing negative signed char values is UB.
+- **Rotation detection**: s2 is rotation of s1 iff s2 is substring of s1+s1 — O(N) one-liner.
+- **Inversion count = insertion sort shifts**: merge sort counts inversions in O(N log N) by accumulating `mid - i` during merge.
+- **Sort key for intervals**: end time for maximise kept / minimise erased; start time for merge/detect.
+- **int64_t for BST bounds**: prevents false failures when node values are INT_MIN or INT_MAX.
+- **DP backtracking discipline**: base case first, memo check second, cache both success and failure directions.
+
+---
+
+*Logged from Claude study session · April 9, 2026*
