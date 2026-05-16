@@ -5302,3 +5302,339 @@ Same problem as #435 — sort by end time, greedily keep earliest-ending. `end =
 ---
 
 *Logged from Claude study session · April 9, 2026*
+
+# C++ LeetCode Study Log
+**Thursday, April 10, 2026**
+
+---
+
+## Problems Covered
+
+| # | Problem | Difficulty | Status |
+|---|---|---|---|
+| #1143 | Longest Common Subsequence | Medium | Top-down memo → bottom-up O(N) space |
+| — | Longest Common Substring | Medium | Standard DP vs diagonal expansion approach |
+| #102 | Binary Tree Level Order Traversal | Medium | Pair approach → queue-size batching |
+| #230 | Kth Smallest Element in a BST | Medium | Custom sentinel → standard inorder |
+| #105 | Construct Binary Tree from Preorder and Inorder | Medium | O(N²) linear search → O(N) hash map |
+
+---
+
+## #1143 — Longest Common Subsequence
+
+### Progression
+
+| Version | Time | Space | Issue |
+|---|---|---|---|
+| Top-down, `0` as sentinel | O(M×N) with redundant recomputation | O(M×N) | `if(memo[i][j])` treats valid 0 as uncached |
+| Top-down, `-1` as sentinel | O(M×N) | O(M×N) + O(M+N) stack | Correct — `if(memo[i][j] >= 0)` |
+| Bottom-up 2D | O(M×N) | O(M×N) | Canonical |
+| Bottom-up rolling array | O(M×N) | O(N) | Space optimised |
+
+### Top-Down — Final Version
+
+```cpp
+int recursive(const string& text1, size_t start1,
+              const string& text2, size_t start2,
+              vector<vector<int>>& memo) {
+    if (start1 == text1.size() || start2 == text2.size()) return 0;
+    if (memo[start1][start2] >= 0) return memo[start1][start2];  // -1 sentinel
+
+    if (text1[start1] == text2[start2])
+        memo[start1][start2] = 1 + recursive(text1, start1+1, text2, start2+1, memo);
+    else
+        memo[start1][start2] = max(recursive(text1, start1,   text2, start2+1, memo),
+                                   recursive(text1, start1+1, text2, start2,   memo));
+    return memo[start1][start2];
+}
+```
+
+### Bottom-Up 2D — Clean
+
+```cpp
+int longestCommonSubsequence(const string& text1, const string& text2) {
+    const int m = text1.size(), n = text2.size();
+    vector<vector<int>> dp(m+1, vector<int>(n+1, 0));
+
+    for (int i = 0; i < m; ++i)
+        for (int j = 0; j < n; ++j)
+            dp[i+1][j+1] = text1[i] == text2[j]
+                ? dp[i][j] + 1
+                : max(dp[i+1][j], dp[i][j+1]);
+
+    return dp[m][n];
+}
+```
+
+`+1` offset elegantly handles base cases — `dp[0][*]` and `dp[*][0]` are 0 by initialisation.
+
+### Bottom-Up Rolling Array — O(N) Space
+
+```cpp
+vector<int> prev(n+1, 0), curr(n+1, 0);
+for (int i = 0; i < m; ++i) {
+    for (int j = 0; j < n; ++j)
+        curr[j+1] = text1[i] == text2[j]
+            ? prev[j] + 1
+            : max(curr[j], prev[j+1]);
+    swap(prev, curr);
+    fill(curr.begin(), curr.end(), 0);
+}
+return prev[n];
+```
+
+`prev[j]` = `dp[i][j]`, `prev[j+1]` = `dp[i][j+1]`, `curr[j]` = `dp[i+1][j]`.
+
+### 2D DP as Landmark — Pattern Generalisation
+
+LCS is the first 2D memoized recursion in these sessions. The pattern generalises from 1D (house robber, decode ways) to 2D identically:
+
+```
+1D DP: memo[i]     — one position, one sequence
+2D DP: memo[i][j]  — two positions, two sequences
+
+Same discipline: -1 sentinel, base case first, cache both directions
+```
+
+### Key Takeaways
+
+- `if(memo[i][j])` treats valid 0 as uncached — always use `!= -1` or `>= 0` as sentinel check.
+- Bottom-up `+1` offset gives free base cases — `dp[0][*]` and `dp[*][0]` are 0 without explicit initialisation.
+- Rolling array reduces O(M×N) to O(N) when each row only depends on the previous.
+
+---
+
+## Longest Common Substring
+
+### Subsequence vs Substring — The One Key Difference
+
+```
+Subsequence (non-contiguous):
+  match:    dp[i+1][j+1] = dp[i][j] + 1
+  mismatch: dp[i+1][j+1] = max(dp[i+1][j], dp[i][j+1])  ← carry forward — gaps allowed
+  return:   dp[m][n]  ← bottom-right always has the answer
+
+Substring (contiguous):
+  match:    dp[i+1][j+1] = dp[i][j] + 1
+  mismatch: dp[i+1][j+1] = 0                              ← reset — contiguity broken
+  return:   max value in entire table  ← answer can end anywhere
+```
+
+### Standard Substring DP
+
+```cpp
+int longestCommonSubstring(const string& text1, const string& text2) {
+    const int m = text1.size(), n = text2.size();
+    vector<vector<int>> dp(m+1, vector<int>(n+1, 0));
+    int longest = 0;
+
+    for (int i = 0; i < m; ++i)
+        for (int j = 0; j < n; ++j)
+            if (text1[i] == text2[j]) {
+                dp[i+1][j+1] = dp[i][j] + 1;
+                longest = max(longest, dp[i+1][j+1]);
+            }
+
+    return longest;
+}
+```
+
+### Bugs in Diagonal Expansion Approach
+
+| Bug | Issue | Fix |
+|---|---|---|
+| `text1[m] = text2[n]` | Assignment instead of comparison — UB on const string | `==` |
+| `else` branch uses `max(neighbors)` | Subsequence logic — carries forward for substring | Remove else, let dp stay 0 |
+| `return dp[m][n]` | Bottom-right has answer only for subsequence | Track `longest = max(longest, dp[i+1][j+1])` |
+| `longest` not updated at `dp[i+1][j+1]=1` | Single-char matches never counted | Update `longest` when setting starting match |
+
+Failing case for missing `longest` update: `text1="ab"`, `text2="ba"` → returns 0 instead of 1.
+
+### Key Takeaways
+
+- Mismatch handling is the entire difference between subsequence and substring — `max(neighbours)` vs reset to 0.
+- For substring, return `max value in table`, not `dp[m][n]`.
+- Track `longest` immediately when setting `dp[i+1][j+1] = 1` — the inner expansion loop may never execute.
+
+---
+
+## #102 — Binary Tree Level Order Traversal
+
+### Pair Approach — Correct But Redundant State
+
+```cpp
+queue<pair<TreeNode*, int>> q;
+q.push({root, 1});
+// stores level with every node — unnecessary
+```
+
+### Queue-Size Batching — Canonical
+
+```cpp
+vector<vector<int>> levelOrder(TreeNode* root) {
+    if (!root) return {};
+    queue<TreeNode*> q;
+    q.push(root);
+
+    while (!q.empty()) {
+        int level_size = static_cast<int>(q.size());  // nodes at current level
+        vector<int> level;
+        for (int i = 0; i < level_size; ++i) {
+            TreeNode* node = q.front(); q.pop();
+            level.push_back(node->val);
+            if (node->left)  q.push(node->left);
+            if (node->right) q.push(node->right);
+        }
+        results.push_back(std::move(level));
+    }
+    return results;
+}
+```
+
+Key insight: when starting a level, `q.size()` is exactly the number of nodes at that level. Processing exactly that many nodes gives one complete level per while iteration — no level counter needed.
+
+### Comparison
+
+| | Pair approach | Queue-size batching |
+|---|---|---|
+| Queue element | `pair<TreeNode*, int>` | `TreeNode*` |
+| Level tracking | Stored per node | Implicit via `q.size()` |
+| Memory per node | ptr + int | ptr only |
+
+### Key Takeaway
+
+Queue-size batching is the canonical BFS template for tree level-order problems — `q.size()` at the start of each iteration is always the exact number of nodes at the current level.
+
+---
+
+## #230 — Kth Smallest Element in a BST
+
+### Bug — Sentinel `result = -1` Fails for Negative Values
+
+The condition `result < current->left->val` exploits BST ordering to detect unvisited left subtrees. Works correctly for non-negative values — fails when node values are negative:
+
+```
+Tree:  0
+      /
+    -1
+k=1 (answer=-1):
+
+result=-1, current=0, left->val=-1
+result(-1) < left->val(-1)? -1 < -1? No → skip left
+pop 0, result=0, count=1 → return 0 ✗
+```
+
+`-1 < -1` is false — the algorithm never visits the left subtree.
+
+### Standard Iterative Inorder — No Sentinel Needed
+
+```cpp
+int kthSmallest(TreeNode* root, int k) {
+    stack<TreeNode*> stk;
+    TreeNode* current = root;
+
+    while (current || !stk.empty()) {
+        while (current) {           // go as far left as possible
+            stk.push(current);
+            current = current->left;
+        }
+        current = stk.top(); stk.pop();  // process
+        if (--k == 0) return current->val;
+        current = current->right;        // move to right subtree
+    }
+    return -1;
+}
+```
+
+No `result` sentinel, no BST-specific condition — pure left-push-pop-right inorder pattern. Handles any integer range.
+
+### Key Takeaways
+
+- Standard iterative inorder: go left until null (push), pop and process, move right — three-step pattern.
+- Sentinel-based conditions that embed BST properties are brittle — they break at edge cases of the value range.
+- O(H+k) time: O(H) to reach leftmost, then O(k) to count up.
+
+---
+
+## #105 — Construct Binary Tree from Preorder and Inorder
+
+### Algorithm
+
+```
+preorder[pre_start] = root value (always)
+find root in inorder[in_start..in_end) → splits into left and right subtrees
+left_count = i - in_start
+
+left subtree:  preorder[pre_start+1 .. pre_start+1+left_count)
+               inorder [in_start .. i)
+right subtree: preorder[pre_start+1+left_count .. pre_end)
+               inorder [i+1 .. in_end)
+```
+
+### O(N²) → O(N) via Hash Map
+
+```cpp
+// O(N²) — linear scan for root in inorder per call
+int i = in_start;
+while (i < in_end && inorder[i] != root_val) ++i;
+
+// O(N) — O(1) lookup via prebuilt index map
+unordered_map<int, int> index_map;
+for (int i = 0; i < n; ++i) index_map[inorder[i]] = i;
+int i = index_map.at(root_val);   // O(1) per call
+```
+
+### Final Solution
+
+```cpp
+TreeNode* buildTree(const vector<int>& preorder, const vector<int>& inorder) {
+    unordered_map<int, int> index_map;
+    for (int i = 0; i < (int)inorder.size(); ++i)
+        index_map[inorder[i]] = i;
+    return recursive(preorder, 0, preorder.size(),
+                     inorder,  0, inorder.size(), index_map);
+}
+
+TreeNode* recursive(const vector<int>& preorder, int pre_start, int pre_end,
+                    const vector<int>& inorder,  int in_start,  int in_end,
+                    const unordered_map<int,int>& index_map) {
+    if (pre_start == pre_end) return nullptr;
+    int root_val   = preorder[pre_start];
+    int i          = index_map.at(root_val);
+    int left_count = i - in_start;
+    auto root      = new TreeNode(root_val);
+    root->left  = recursive(preorder, pre_start+1, pre_start+1+left_count,
+                            inorder, in_start, i, index_map);
+    root->right = recursive(preorder, pre_start+1+left_count, pre_end,
+                            inorder, i+1, in_end, index_map);
+    return root;
+}
+```
+
+### Complexity
+
+| | Linear search | Hash map |
+|---|---|---|
+| Time | O(N²) | O(N) |
+| Space | O(N) stack | O(N) stack + O(N) map |
+
+### Key Takeaways
+
+- `preorder[0]` is always the root. Finding it in `inorder` gives exact left and right subtree sizes.
+- Prebuilding a hash map from value to inorder index reduces per-call root lookup from O(N) to O(1).
+- The index arithmetic `pre_start+1+left_count` and `i-in_start` is the core of the recursion — worth deriving rather than memorising.
+
+---
+
+## Key Takeaways
+
+- **2D DP sentinel**: always use `-1`, never `0` — `0` is a valid LCS/LIS value and treating it as uncached causes redundant recomputation.
+- **Subsequence vs substring**: the entire difference is mismatch handling — `max(neighbours)` allows gaps; reset to `0` enforces contiguity. Return value also changes: `dp[m][n]` for subsequence vs `max in table` for substring.
+- **BFS level batching**: `q.size()` at the start of each while iteration is always the exact node count for the current level — the canonical template for level-order tree problems.
+- **Iterative inorder BST**: go left until null (pushing), pop and process, move right. No sentinel values, no BST-specific conditions — handles any integer range.
+- **Preorder + inorder reconstruction**: `preorder[0]` is root; find in inorder to get `left_count`; precompute hash map for O(1) lookup reducing O(N²) to O(N).
+- **Sentinel fragility**: conditions like `result = -1` as "not yet processed" break at the edges of the value range — the standard iterative inorder avoids this entirely.
+
+---
+
+*Logged from Claude study session · April 10, 2026*
